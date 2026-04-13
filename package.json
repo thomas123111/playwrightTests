@@ -1,0 +1,21 @@
+{
+    "name": "rechner-e2e-tests",
+    "version": "1.0.0",
+    "description": "Playwright Cross-Browser E2E-Tests für den Versicherungsrechner",
+    "private": true,
+    "scripts": {
+        "test": "playwright test",
+        "test:smoke": "playwright test tests/smoke/",
+        "test:flows": "playwright test tests/flows/",
+        "test:visual": "playwright test tests/visual/",
+        "test:chromium": "playwright test --project=chromium-desktop",
+        "test:mobile": "playwright test --project='iPhone 14' --project='iPhone SE' --project='Pixel 7' --project='Galaxy S21'",
+        "report": "playwright show-report",
+        "update-snapshots": "playwright test tests/visual/ --update-snapshots"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.52.0",
+        "@types/node": "^25.6.0",
+        "dotenv": "^16.4.7"
+    }
+}

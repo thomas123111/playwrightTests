@@ -1,0 +1,139 @@
+# GitLab CI/CD-Konfiguration für Playwright E2E-Tests
+# Verwendet das offizielle Playwright Docker-Image
+
+image: mcr.microsoft.com/playwright:v1.52.0-noble
+
+stages:
+  - smoke
+  - full
+  - report
+
+variables:
+  # Standard-URL des Rechners (kann über CI/CD-Variablen überschrieben werden)
+  RECHNER_URL: "https://rechner.fixversichert.de"
+  # Playwright-spezifische Einstellungen
+  CI: "true"
+  NODE_ENV: "test"
+
+# Gemeinsame Konfiguration für alle Test-Jobs
+.test-base:
+  before_script:
+    - npm ci
+  artifacts:
+    when: always
+    paths:
+      - reports/
+      - test-results/
+    reports:
+      junit: reports/results.json
+    expire_in: 30 days
+
+# ============================================
+# SMOKE-TESTS — Laufen bei jedem Merge Request
+# ============================================
+
+smoke-tests:
+  extends: .test-base
+  stage: smoke
+  script:
+    - npx playwright test tests/smoke/ --reporter=list,json,html
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  artifacts:
+    when: always
+    paths:
+      - reports/
+      - test-results/
+    expire_in: 7 days
+
+# ============================================
+# VOLLSTÄNDIGE TEST-SUITE — Nightly + manuell
+# ============================================
+
+# Happy-Path und Edge-Case-Tests auf allen Browsern
+flow-tests:
+  extends: .test-base
+  stage: full
+  script:
+    - npx playwright test tests/flows/ --reporter=list,json,html
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - reports/
+      - test-results/
+    expire_in: 30 days
+
+# Visual-Regression-Tests
+visual-regression-tests:
+  extends: .test-base
+  stage: full
+  script:
+    - npx playwright test tests/visual/ --reporter=list,json,html
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+  artifacts:
+    when: always
+    paths:
+      - reports/
+      - test-results/
+      # Visual-Regression-Snapshots aufbewahren
+      - tests/visual/visual-regression.spec.ts-snapshots/
+    expire_in: 30 days
+
+# ============================================
+# REPORT — Zusammenfassung und Benachrichtigung
+# ============================================
+
+generate-report:
+  stage: report
+  needs:
+    - job: smoke-tests
+      optional: true
+    - job: flow-tests
+      optional: true
+    - job: visual-regression-tests
+      optional: true
+  script:
+    - echo "Test-Reports wurden erstellt."
+    - |
+      if [ -n "$NOTIFICATION_WEBHOOK_URL" ]; then
+        # Benachrichtigung über Testergebnisse senden
+        STATUS="success"
+        if [ -f reports/results.json ]; then
+          FAILED=$(cat reports/results.json | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          stats = data.get('stats', {})
+          print(stats.get('unexpected', 0))
+          " 2>/dev/null || echo "0")
+          if [ "$FAILED" != "0" ]; then
+            STATUS="failure"
+          fi
+        fi
+        curl -X POST "$NOTIFICATION_WEBHOOK_URL" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"text\": \"Playwright E2E Tests: ${STATUS}\",
+            \"pipeline\": \"${CI_PIPELINE_URL}\",
+            \"project\": \"${CI_PROJECT_NAME}\",
+            \"branch\": \"${CI_COMMIT_REF_NAME}\"
+          }" || true
+      fi
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  artifacts:
+    when: always
+    paths:
+      - reports/
+    expire_in: 30 days

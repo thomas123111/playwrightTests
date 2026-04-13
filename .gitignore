@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Playwright-generierte Dateien
+test-results/
+reports/
+playwright-report/
+blob-report/
+
+# Umgebungsvariablen (nie committen!)
+.env
+
+# OS-Dateien
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Build-Artefakte
+dist/
+
+# Temporäre Dateien
+*.tmp
+*.log
