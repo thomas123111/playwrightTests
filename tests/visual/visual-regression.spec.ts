@@ -7,6 +7,8 @@ import { TEST_DATA } from '../../fixtures/test-data';
  * Visual-Regression-Tests: Screenshot-Vergleiche an definierten Punkten.
  * Separate Snapshots pro Browser/Device-Kombination werden automatisch
  * von Playwright verwaltet (Ordnerstruktur nach Projekt-Name).
+ *
+ * Der E-Bike-Versicherungsrechner ist eine React/Mantine-SPA.
  */
 test.describe('Visual Regression', () => {
     let rechnerPage: RechnerPage;
@@ -19,27 +21,27 @@ test.describe('Visual Regression', () => {
         await collectDiagnostics(page, testInfo, rechnerPage);
     });
 
-    test('Startseite — initialer Zustand', async ({ page }) => {
+    test('Startseite — initialer Zustand mit Geräteauswahl', async ({ page }) => {
         await rechnerPage.goto();
 
-        // Kurz warten bis alle Animationen/Lazy-Loads abgeschlossen sind
-        await page.waitForTimeout(1_000);
+        // Warten bis die SPA vollständig gerendert hat
+        await page.waitForTimeout(2_000);
 
-        // TODO: Anpassen — ggf. Cookie-Banner oder andere Overlays schließen
         await expect(page).toHaveScreenshot('rechner-startseite.png', {
             fullPage: true,
             maxDiffPixelRatio: 0.002,
         });
     });
 
-    test('Formular ausgefüllt — vor Berechnung', async ({ page }) => {
+    test('Formular ausgefüllt — Pedelec mit allen Feldern', async ({ page }) => {
         await rechnerPage.goto();
 
-        const input = TEST_DATA.validInputs[0];
-        await rechnerPage.selectCategory(input.category);
-        await rechnerPage.enterBusinessType(input.business);
+        const input = TEST_DATA.validInputs[0]; // Pedelec Standardfall
+        await rechnerPage.selectDeviceMode(input.deviceMode);
+        await rechnerPage.enterPurchasePrice(input.purchasePrice);
+        await rechnerPage.enterBirthDate(input.birthDate);
+        await rechnerPage.enterPurchaseDate(input.purchaseDate);
         await rechnerPage.enterPostalCode(input.plz);
-        await rechnerPage.enterRevenue(input.revenue);
 
         await page.waitForTimeout(500);
 
@@ -49,7 +51,7 @@ test.describe('Visual Regression', () => {
         });
     });
 
-    test('Ergebnisliste — nach Berechnung', async ({ page }) => {
+    test('Ergebnisliste — Vergleichstabelle nach Berechnung', async ({ page }) => {
         await rechnerPage.goto();
 
         const input = TEST_DATA.validInputs[0];
@@ -63,15 +65,15 @@ test.describe('Visual Regression', () => {
         });
     });
 
-    test('Fehler-State — ungültige Eingabe', async ({ page }) => {
+    test('Fehler-State — ungültige PLZ', async ({ page }) => {
         await rechnerPage.goto();
 
-        // Ungültige PLZ eingeben, um einen Fehler-State zu provozieren
-        await rechnerPage.selectCategory(TEST_DATA.validInputs[0].category);
-        await rechnerPage.enterBusinessType(TEST_DATA.validInputs[0].business);
+        await rechnerPage.selectDeviceMode('pedelec');
+        await rechnerPage.enterPurchasePrice(3_500);
+        await rechnerPage.enterBirthDate('10.03.2000');
+        await rechnerPage.enterPurchaseDate('10.03.2025');
         await rechnerPage.enterPostalCode('00000');
-        await rechnerPage.enterRevenue(50_000);
-        await rechnerPage.clickCalculate();
+        await rechnerPage.clickCompare();
 
         await page.waitForTimeout(3_000);
 
@@ -82,11 +84,10 @@ test.describe('Visual Regression', () => {
     });
 
     test('Mobile-Darstellung — Startseite', async ({ page }) => {
-        // Explizit auf Mobile-Viewport setzen (ergänzend zu den Device-Projekten)
         await page.setViewportSize({ width: 375, height: 667 });
         await rechnerPage.goto();
 
-        await page.waitForTimeout(1_000);
+        await page.waitForTimeout(2_000);
 
         await expect(page).toHaveScreenshot('rechner-mobile-startseite.png', {
             fullPage: true,

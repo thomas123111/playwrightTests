@@ -5,7 +5,7 @@ import { TEST_DATA } from '../../fixtures/test-data';
 
 /**
  * Edge-Case-Tests: Ungültige und ungewöhnliche Eingaben.
- * Prüft, dass der Rechner graceful reagiert und nicht crasht.
+ * Prüft, dass der E-Bike-Versicherungsrechner graceful reagiert und nicht crasht.
  */
 test.describe('Rechner Edge Cases', () => {
     let rechnerPage: RechnerPage;
@@ -25,14 +25,14 @@ test.describe('Rechner Edge Cases', () => {
             const displayPlz = plz === '' ? '(leer)' : `"${plz}"`;
 
             test(`PLZ ${displayPlz} — Rechner crasht nicht`, async () => {
-                await rechnerPage.selectCategory(TEST_DATA.validInputs[0].category);
-                await rechnerPage.enterBusinessType(TEST_DATA.validInputs[0].business);
+                await rechnerPage.selectDeviceMode('pedelec');
+                await rechnerPage.enterPurchasePrice(3_500);
+                await rechnerPage.enterBirthDate('10.03.2000');
+                await rechnerPage.enterPurchaseDate('10.03.2025');
                 await rechnerPage.enterPostalCode(plz);
-                await rechnerPage.enterRevenue(50_000);
-                await rechnerPage.clickCalculate();
+                await rechnerPage.clickCompare();
 
-                // Rechner soll entweder eine Fehlermeldung zeigen oder das Ergebnis anzeigen
-                // — aber NICHT crashen
+                // Warten auf Reaktion
                 await rechnerPage.page.waitForTimeout(3_000);
 
                 // Keine unhandled Exceptions in der Konsole
@@ -45,47 +45,73 @@ test.describe('Rechner Edge Cases', () => {
         }
     });
 
-    // --- Umsatz Edge Cases ---
-    test.describe('Umsatz-Validierung', () => {
-        for (const revenue of TEST_DATA.edgeCases.revenue) {
-            const displayRevenue = String(revenue);
+    // --- Kaufpreis Edge Cases ---
+    test.describe('Kaufpreis-Validierung', () => {
+        for (const price of TEST_DATA.edgeCases.purchasePrice) {
+            const displayPrice = String(price);
 
-            test(`Umsatz ${displayRevenue} — Rechner crasht nicht`, async () => {
-                await rechnerPage.selectCategory(TEST_DATA.validInputs[0].category);
-                await rechnerPage.enterBusinessType(TEST_DATA.validInputs[0].business);
-                await rechnerPage.enterPostalCode('10115');
-                await rechnerPage.enterRevenue(revenue);
-                await rechnerPage.clickCalculate();
+            test(`Kaufpreis ${displayPrice}€ — Rechner crasht nicht`, async () => {
+                await rechnerPage.selectDeviceMode('pedelec');
+                await rechnerPage.enterPurchasePrice(price);
+                await rechnerPage.enterBirthDate('10.03.2000');
+                await rechnerPage.enterPurchaseDate('10.03.2025');
+                await rechnerPage.enterPostalCode('13465');
+                await rechnerPage.clickCompare();
 
                 await rechnerPage.page.waitForTimeout(3_000);
 
                 const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
                 expect(
                     criticalErrors,
-                    `Unhandled Exceptions bei Umsatz ${displayRevenue}:\n${criticalErrors.join('\n')}`
+                    `Unhandled Exceptions bei Kaufpreis ${displayPrice}€:\n${criticalErrors.join('\n')}`
                 ).toHaveLength(0);
             });
         }
     });
 
-    // --- Berufsgruppe Edge Cases ---
-    test.describe('Berufsgruppe-Validierung', () => {
-        for (const business of TEST_DATA.edgeCases.business) {
-            const displayBusiness = business === '' ? '(leer)' : `"${business}"`;
+    // --- Geburtsdatum Edge Cases ---
+    test.describe('Geburtsdatum-Validierung', () => {
+        for (const date of TEST_DATA.edgeCases.birthDate) {
+            const displayDate = date === '' ? '(leer)' : `"${date}"`;
 
-            test(`Berufsgruppe ${displayBusiness} — Rechner crasht nicht`, async () => {
-                await rechnerPage.selectCategory(TEST_DATA.validInputs[0].category);
-                await rechnerPage.enterBusinessType(business);
-                await rechnerPage.enterPostalCode('10115');
-                await rechnerPage.enterRevenue(50_000);
-                await rechnerPage.clickCalculate();
+            test(`Geburtsdatum ${displayDate} — Rechner crasht nicht`, async () => {
+                await rechnerPage.selectDeviceMode('pedelec');
+                await rechnerPage.enterPurchasePrice(3_500);
+                await rechnerPage.enterBirthDate(date);
+                await rechnerPage.enterPurchaseDate('10.03.2025');
+                await rechnerPage.enterPostalCode('13465');
+                await rechnerPage.clickCompare();
 
                 await rechnerPage.page.waitForTimeout(3_000);
 
                 const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
                 expect(
                     criticalErrors,
-                    `Unhandled Exceptions bei Berufsgruppe ${displayBusiness}:\n${criticalErrors.join('\n')}`
+                    `Unhandled Exceptions bei Geburtsdatum ${displayDate}:\n${criticalErrors.join('\n')}`
+                ).toHaveLength(0);
+            });
+        }
+    });
+
+    // --- Kaufdatum Edge Cases ---
+    test.describe('Kaufdatum-Validierung', () => {
+        for (const date of TEST_DATA.edgeCases.purchaseDate) {
+            const displayDate = date === '' ? '(leer)' : `"${date}"`;
+
+            test(`Kaufdatum ${displayDate} — Rechner crasht nicht`, async () => {
+                await rechnerPage.selectDeviceMode('pedelec');
+                await rechnerPage.enterPurchasePrice(3_500);
+                await rechnerPage.enterBirthDate('10.03.2000');
+                await rechnerPage.enterPurchaseDate(date);
+                await rechnerPage.enterPostalCode('13465');
+                await rechnerPage.clickCompare();
+
+                await rechnerPage.page.waitForTimeout(3_000);
+
+                const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
+                expect(
+                    criticalErrors,
+                    `Unhandled Exceptions bei Kaufdatum ${displayDate}:\n${criticalErrors.join('\n')}`
                 ).toHaveLength(0);
             });
         }
@@ -93,63 +119,40 @@ test.describe('Rechner Edge Cases', () => {
 
     // --- XSS-Tests ---
     test.describe('XSS-Prävention', () => {
-        test('Script-Tags werden nicht ausgeführt', async ({ page }) => {
-            const xssPayload = '<script>alert(1)</script>';
+        for (const payload of TEST_DATA.edgeCases.xssPayloads) {
+            test(`XSS-Payload "${payload.substring(0, 30)}..." wird nicht ausgeführt`, async ({ page }) => {
+                // XSS-Payload in alle verfügbaren Felder eingeben
+                await rechnerPage.enterManufacturer(payload);
+                await rechnerPage.enterModel(payload);
+                await rechnerPage.enterPostalCode(payload);
 
-            // XSS-Payload in alle Felder eingeben
-            await rechnerPage.enterBusinessType(xssPayload);
-            await rechnerPage.enterPostalCode(xssPayload);
+                // Prüfen ob ein Alert-Dialog erscheint (sollte NICHT passieren)
+                let alertTriggered = false;
+                page.on('dialog', () => {
+                    alertTriggered = true;
+                });
 
-            // Prüfen ob ein Alert-Dialog erscheint (sollte NICHT passieren)
-            let alertTriggered = false;
-            page.on('dialog', () => {
-                alertTriggered = true;
+                await rechnerPage.clickCompare();
+                await page.waitForTimeout(3_000);
+
+                expect(alertTriggered, `XSS-Angriff wurde ausgeführt: ${payload}`).toBeFalsy();
             });
-
-            await rechnerPage.clickCalculate();
-            await page.waitForTimeout(3_000);
-
-            expect(alertTriggered, 'XSS-Angriff wurde ausgeführt!').toBeFalsy();
-
-            // Prüfen ob der Script-Tag im DOM escaped dargestellt wird
-            const bodyText = await page.locator('body').textContent();
-            expect(
-                bodyText,
-                'Script-Tag wurde nicht escaped'
-            ).not.toContain('<script>');
-        });
-
-        test('Event-Handler in Eingaben werden nicht ausgeführt', async ({ page }) => {
-            const xssPayload = '" onmouseover="alert(1)" data-x="';
-
-            await rechnerPage.enterBusinessType(xssPayload);
-
-            let alertTriggered = false;
-            page.on('dialog', () => {
-                alertTriggered = true;
-            });
-
-            // Hover über das Eingabefeld
-            // TODO: Anpassen — Selektor für das Berufsgruppe-Feld
-            await page.hover('[data-testid="business-type"], #business-type, input[name="business"]');
-            await page.waitForTimeout(1_000);
-
-            expect(alertTriggered, 'XSS via Event-Handler wurde ausgeführt!').toBeFalsy();
-        });
+        }
     });
 
     // --- Doppel-Submit ---
-    test('Doppelter Klick auf Berechnen crasht nicht', async () => {
-        await rechnerPage.selectCategory(TEST_DATA.validInputs[0].category);
-        await rechnerPage.enterBusinessType(TEST_DATA.validInputs[0].business);
-        await rechnerPage.enterPostalCode('10115');
-        await rechnerPage.enterRevenue(50_000);
+    test('Doppelter Klick auf Vergleichen crasht nicht', async () => {
+        await rechnerPage.selectDeviceMode('pedelec');
+        await rechnerPage.enterPurchasePrice(3_500);
+        await rechnerPage.enterBirthDate('10.03.2000');
+        await rechnerPage.enterPurchaseDate('10.03.2025');
+        await rechnerPage.enterPostalCode('13465');
 
-        // Doppelklick auf den Button
-        // TODO: Anpassen — Selektor für den Calculate-Button
-        await rechnerPage.page.locator(
-            '[data-testid="calculate-btn"], #calculate-btn, button[type="submit"]'
-        ).dblclick();
+        // Schnell zweimal klicken
+        const compareBtn = rechnerPage.page.locator(
+            'button:has-text("Jetzt vergleichen"), button:has-text("Angebot anfordern"), button[class*="vergleicherButton"]'
+        ).first();
+        await compareBtn.dblclick();
 
         await rechnerPage.page.waitForTimeout(5_000);
 
@@ -162,17 +165,32 @@ test.describe('Rechner Edge Cases', () => {
 
     // --- Leeres Formular absenden ---
     test('Leeres Formular absenden — graceful Handling', async () => {
-        // Ohne Eingaben direkt auf Berechnen klicken
-        await rechnerPage.clickCalculate();
+        // Ohne Eingaben direkt vergleichen klicken
+        await rechnerPage.clickCompare();
 
         await rechnerPage.page.waitForTimeout(3_000);
 
-        // Erwartung: Fehlermeldung wird angezeigt ODER nichts passiert
-        // Aber kein Crash
+        // Kein Crash — Fehlermeldung oder keine Reaktion ist akzeptabel
         const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
         expect(
             criticalErrors,
             `Fehler bei leerem Formular:\n${criticalErrors.join('\n')}`
         ).toHaveLength(0);
+    });
+
+    // --- Extremer Kaufpreis ---
+    test('Sehr hoher Kaufpreis (999.999€) wird verarbeitet', async () => {
+        await rechnerPage.selectDeviceMode('ebike');
+        await rechnerPage.enterPurchasePrice(999_999);
+        await rechnerPage.enterBirthDate('10.03.2000');
+        await rechnerPage.enterPurchaseDate('10.03.2025');
+        await rechnerPage.enterPostalCode('13465');
+        await rechnerPage.clickCompare();
+
+        await rechnerPage.page.waitForTimeout(5_000);
+
+        // Entweder Ergebnisse oder eine sinnvolle Meldung — aber kein Crash
+        const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
+        expect(criticalErrors).toHaveLength(0);
     });
 });

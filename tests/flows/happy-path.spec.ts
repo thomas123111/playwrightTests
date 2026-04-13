@@ -5,7 +5,15 @@ import { TEST_DATA } from '../../fixtures/test-data';
 
 /**
  * Happy-Path-Tests: Vollständige User-Flows mit gültigen Eingaben.
- * Prüft, dass der Rechner für alle Standardszenarien korrekte Ergebnisse liefert.
+ *
+ * Flow des E-Bike-Versicherungsrechners:
+ *   1. Gerätetyp wählen (Pedelec / E-Bike / Fahrrad / S-Pedelec)
+ *   2. Kaufpreis eingeben
+ *   3. Geburtsdatum eingeben
+ *   4. Kaufdatum eingeben
+ *   5. PLZ eingeben
+ *   6. "Jetzt vergleichen" klicken
+ *   7. Ergebnisliste prüfen
  */
 test.describe('Rechner Happy Path', () => {
     let rechnerPage: RechnerPage;
@@ -20,7 +28,7 @@ test.describe('Rechner Happy Path', () => {
     });
 
     for (const input of TEST_DATA.validInputs) {
-        test(`Vollständiger Flow: ${input.category} — ${input.business} (PLZ ${input.plz})`, async () => {
+        test(`Vollständiger Flow: ${input.description ?? input.deviceMode} (PLZ ${input.plz})`, async () => {
             // Kompletten Rechner-Flow durchlaufen
             await rechnerPage.completeFlow(input);
 
@@ -28,7 +36,7 @@ test.describe('Rechner Happy Path', () => {
             const resultCount = await rechnerPage.getResultCount();
             expect(
                 resultCount,
-                `Keine Ergebnisse für ${input.category} / ${input.business}`
+                `Keine Ergebnisse für ${input.deviceMode} / ${input.purchasePrice}€`
             ).toBeGreaterThanOrEqual(TEST_DATA.minExpectedResults);
 
             // Ergebnis enthält Preisinformation
@@ -60,34 +68,55 @@ test.describe('Rechner Happy Path', () => {
         await rechnerPage.completeFlow(input);
 
         const resultCount = await rechnerPage.getResultCount();
-        // Nur testen wenn Ergebnisse vorhanden sind
         test.skip(resultCount === 0, 'Keine Ergebnisse vorhanden — Test übersprungen');
 
         // Ersten Tarif auswählen
         await rechnerPage.selectTariff(0);
 
-        // TODO: Anpassen — Prüfen ob die Tarif-Details/Weiterleitung funktioniert
-        // Erwartung: Seite crasht nicht, kein Fehler wird angezeigt
+        // Kein Crash, kein Fehler nach Auswahl
         const hasErrors = await rechnerPage.hasErrors();
         expect(hasErrors, 'Fehler nach Tarif-Auswahl').toBeFalsy();
     });
 
-    test('Rechner mit deutschen Sonderzeichen', async () => {
-        for (const specialBusiness of TEST_DATA.specialChars) {
+    test('Alle verfügbaren Gerätetypen liefern Ergebnisse', async () => {
+        for (const deviceMode of TEST_DATA.deviceModes) {
             rechnerPage.resetErrorCollectors();
-
             await rechnerPage.goto();
-            await rechnerPage.selectCategory(TEST_DATA.validInputs[0].category);
-            await rechnerPage.enterBusinessType(specialBusiness);
-            await rechnerPage.enterPostalCode('10115');
-            await rechnerPage.enterRevenue(50_000);
-            await rechnerPage.clickCalculate();
 
-            // Rechner darf nicht crashen — Ergebnis oder Fehlermeldung ist akzeptabel
+            await rechnerPage.completeFlow({
+                deviceMode,
+                purchasePrice: 3_500,
+                birthDate: '10.03.2000',
+                purchaseDate: '10.03.2025',
+                plz: '13465',
+            });
+
+            const resultCount = await rechnerPage.getResultCount();
+            expect(
+                resultCount,
+                `Keine Ergebnisse für Gerätetyp "${deviceMode}"`
+            ).toBeGreaterThanOrEqual(1);
+        }
+    });
+
+    test('Rechner mit deutschen Sonderzeichen im Hersteller-Feld', async () => {
+        for (const hersteller of TEST_DATA.specialChars.hersteller) {
+            rechnerPage.resetErrorCollectors();
+            await rechnerPage.goto();
+
+            await rechnerPage.selectDeviceMode('pedelec');
+            await rechnerPage.enterManufacturer(hersteller);
+            await rechnerPage.enterPurchasePrice(3_500);
+            await rechnerPage.enterBirthDate('10.03.2000');
+            await rechnerPage.enterPurchaseDate('10.03.2025');
+            await rechnerPage.enterPostalCode('13465');
+            await rechnerPage.clickCompare();
+
+            // Rechner darf nicht crashen
             const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
             expect(
                 criticalErrors,
-                `Konsolen-Fehler bei Sonderzeichen "${specialBusiness}":\n${criticalErrors.join('\n')}`
+                `Konsolen-Fehler bei Sonderzeichen "${hersteller}":\n${criticalErrors.join('\n')}`
             ).toHaveLength(0);
         }
     });

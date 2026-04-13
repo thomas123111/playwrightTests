@@ -1,4 +1,5 @@
-import { type Page, type Locator, type BrowserContext } from '@playwright/test';
+import { type Page, type FrameLocator } from '@playwright/test';
+import type { DeviceMode } from '../fixtures/test-data';
 
 /**
  * Gesammelte Informationen über einen fehlgeschlagenen Netzwerk-Request
@@ -11,13 +12,21 @@ export interface NetworkFailure {
 }
 
 /**
- * Page Object Model für den Versicherungsrechner.
+ * Page Object Model für den E-Bike-Versicherungsrechner (enscompare).
  *
- * Kapselt alle Interaktionen mit dem Rechner und sammelt
- * automatisch Konsolen-Fehler und fehlgeschlagene Netzwerk-Requests.
+ * Der Rechner ist eine React/Mantine-SPA, die als WordPress-Plugin
+ * (enscompare) ausgeliefert wird. Die App rendert im Shadow DOM
+ * unter der Klasse "ensShadowMain" und hat ein Portal-Root "ensPortalRoot".
  *
- * HINWEIS: Selektoren sind Platzhalter und müssen angepasst werden,
- * sobald die echten DOM-Strukturen bekannt sind.
+ * Navigationsschritte (Redux state):
+ *   devicemode_selected → bikeInput → ensuranceList → (checkout/summary/payment)
+ *
+ * Bike-Daten werden im Redux-Store unter userData.bikes[bikeId] gespeichert.
+ * Globale Felder (plz, birthday) liegen unter userData direkt.
+ *
+ * HINWEIS: Einige Selektoren können sich ändern, da die App CSS-Module
+ * und Mantine-Klassen verwendet. Bei Änderungen die betroffenen
+ * Selektoren in dieser Datei anpassen.
  */
 export class RechnerPage {
     readonly page: Page;
@@ -28,55 +37,108 @@ export class RechnerPage {
     /** Gesammelte fehlgeschlagene Netzwerk-Requests */
     networkFailures: NetworkFailure[] = [];
 
-    // --- Selektoren (TODO: Anpassen an echte DOM-Struktur) ---
+    // ======================================================================
+    // Selektoren
+    // Die App ist eine React-SPA. Formularfelder werden über Mantine-
+    // Komponenten gerendert. Selektoren basieren auf der JS-Bundle-Analyse.
+    // ======================================================================
 
-    /** Hauptcontainer des Rechners */
-    // TODO: Anpassen — Selektor für den äußeren Container des Rechners
-    private readonly containerSelector = '[data-testid="rechner-container"], #rechner-container, .rechner-wrapper';
+    /** Hauptcontainer — die App rendert ggf. im Shadow DOM */
+    // Die SPA mountet mit classList.add("ensShadowMain") und "ensPortalRoot"
+    private readonly containerSelector = '.ensShadowMain, .ensPortalRoot, #ens_compare_table_input_fields';
 
-    /** Kategorie-Auswahl (z.B. Berufshaftpflicht, Inhaltsversicherung) */
-    // TODO: Anpassen — Selektor für das Kategorie-Dropdown oder die Radio-Buttons
-    private readonly categorySelector = '[data-testid="category-select"], #category-select, select[name="category"]';
+    /**
+     * Gerätetyp-Auswahl (Pedelec, E-Bike, Fahrrad, S-Pedelec).
+     * Wird als Mantine Select oder als Button-Gruppe gerendert.
+     * Die Option "devicekey":"select" in ensOptions zeigt eine Select-Komponente.
+     */
+    // TODO: Anpassen — der genaue Selektor hängt vom Rendering ab
+    // Mögliche Varianten: Mantine Select (.mantine-Select-input), Radio-Buttons, oder Karten
+    private readonly deviceModeSelector = '.nav_top_select, [class*="nav_top_select"], input[class*="mantine-Select-input"]';
 
-    /** Berufsgruppe / Gewerbe-Eingabefeld */
-    // TODO: Anpassen — Selektor für das Autocomplete-/Textfeld zur Berufsgruppe
-    private readonly businessTypeSelector = '[data-testid="business-type"], #business-type, input[name="business"]';
+    /**
+     * Kaufpreis-Feld.
+     * Redux-Key: userData.bikes[bikeId].price
+     * Label: "Kaufpreis"
+     */
+    // TODO: Anpassen — Mantine NumberInput oder TextInput mit label "Kaufpreis"
+    private readonly purchasePriceSelector = 'input[aria-label*="Kaufpreis" i], input[placeholder*="Kaufpreis" i], label:has-text("Kaufpreis") + input, label:has-text("Kaufpreis") ~ input';
 
-    /** PLZ-Eingabefeld */
-    // TODO: Anpassen — Selektor für das PLZ-Feld
-    private readonly postalCodeSelector = '[data-testid="postal-code"], #postal-code, input[name="plz"]';
+    /**
+     * Geburtsdatum-Feld.
+     * Redux-Key: userData.birthday (via field:"birthday", isBday:true)
+     * Label: "Geburtsdatum"
+     */
+    // TODO: Anpassen — Mantine DateInput oder DatePicker
+    private readonly birthDateSelector = 'input[aria-label*="Geburtsdatum" i], input[placeholder*="Geburtsdatum" i], label:has-text("Geburtsdatum") + input, label:has-text("Geburtsdatum") ~ input';
 
-    /** Jahresumsatz-Eingabefeld */
-    // TODO: Anpassen — Selektor für das Umsatz-Feld
-    private readonly revenueSelector = '[data-testid="revenue"], #revenue, input[name="revenue"]';
+    /**
+     * Kaufdatum-Feld.
+     * Redux-Key: userData.bikes[bikeId].buyDate
+     * In der App-Logik wird das Kaufdatum teils automatisch auf heute gesetzt.
+     */
+    // TODO: Anpassen — Kaufdatum-Feld, ggf. als DatePicker
+    private readonly purchaseDateSelector = 'input[aria-label*="Kaufdatum" i], input[placeholder*="Kaufdatum" i], label:has-text("Kaufdatum") + input, label:has-text("Kaufdatum") ~ input';
 
-    /** Mitarbeiteranzahl-Eingabefeld */
-    // TODO: Anpassen — Selektor für das Mitarbeiter-Feld
-    private readonly employeeCountSelector = '[data-testid="employee-count"], #employee-count, input[name="employees"]';
+    /**
+     * PLZ-Feld.
+     * Redux-Key: userData.plz
+     * Label: "Postleitzahl"
+     * Validierung: digits_between:5,5 (DE) oder digits_between:4,4 (AT)
+     */
+    private readonly postalCodeSelector = 'input[aria-label*="Postleitzahl" i], input[placeholder*="Postleitzahl" i], label:has-text("Postleitzahl") + input, label:has-text("Postleitzahl") ~ input';
 
-    /** "Berechnen" / "Vergleichen" Button */
-    // TODO: Anpassen — Selektor für den Haupt-Submit-Button
-    private readonly calculateButtonSelector = '[data-testid="calculate-btn"], #calculate-btn, button[type="submit"]';
+    /**
+     * Hersteller-Feld (optional).
+     * Redux-Key: userData.bikes[bikeId].bikeMarke
+     * Label: "Hersteller"
+     */
+    private readonly manufacturerSelector = 'input[aria-label*="Hersteller" i], label:has-text("Hersteller") + input, label:has-text("Hersteller") ~ input';
 
-    /** Ergebnisliste / Container */
-    // TODO: Anpassen — Selektor für den Container mit den Tarif-Ergebnissen
-    private readonly resultsContainerSelector = '[data-testid="results-container"], #results-container, .results-list';
+    /**
+     * Modell-Feld (optional).
+     * Redux-Key: userData.bikes[bikeId].bikeTypeName
+     * Label: "Modellbezeichnung"
+     */
+    private readonly modelSelector = 'input[aria-label*="Modell" i], label:has-text("Modellbezeichnung") + input, label:has-text("Modellbezeichnung") ~ input';
 
-    /** Einzelnes Tarif-Ergebnis */
-    // TODO: Anpassen — Selektor für ein einzelnes Tarif-Ergebnis in der Liste
-    private readonly resultItemSelector = '[data-testid="result-item"], .result-item, .tariff-card';
+    /**
+     * "Jetzt vergleichen" / "Angebot anfordern" Button.
+     * CSS-Klasse: vergleicherButton (CSS-Module-Hash)
+     */
+    // TODO: Anpassen — der Button-Text variiert je nach Kontext
+    private readonly compareButtonSelector = 'button:has-text("Jetzt vergleichen"), button:has-text("Angebot anfordern"), button[class*="vergleicherButton"]';
 
-    /** Preis-Anzeige innerhalb eines Tarif-Ergebnisses */
-    // TODO: Anpassen — Selektor für die Preisanzeige
-    private readonly priceSelector = '[data-testid="price"], .price, .tariff-price';
+    /**
+     * Ergebnis-Container — die Vergleichstabelle mit Tarifen.
+     * ID: ens_compare_table_input_fields (im JS sichtbar)
+     * CSS-Klasse: compareTable / compareTableTop
+     */
+    private readonly resultsContainerSelector = '#ens_compare_table_input_fields, [class*="compareTable"], .ensuranceList';
 
-    /** Fehlermeldungs-Container */
-    // TODO: Anpassen — Selektor für sichtbare Fehlermeldungen
-    private readonly errorMessageSelector = '[data-testid="error-message"], .error-message, .alert-danger, .rechner-error';
+    /**
+     * Einzelner Tarif in der Ergebnisliste.
+     * Jeder Tarif wird als Karte/Zeile mit ensName und priceContainer dargestellt.
+     */
+    // TODO: Anpassen — Selektor für einzelne Tarif-Einträge
+    private readonly resultItemSelector = '[class*="ensName"], [class*="addEnsItem"], [class*="headerBox"]';
 
-    /** "Vergleichen" / Weiterleiten-Button */
-    // TODO: Anpassen — Selektor für den Vergleichs-/Detail-Button
-    private readonly compareButtonSelector = '[data-testid="compare-btn"], .compare-btn, a.compare-link';
+    /**
+     * Preis-Anzeige in der Ergebnisliste
+     */
+    private readonly priceSelector = '[class*="priceContainer"], [class*="priceText"]';
+
+    /**
+     * Fehlermeldungen
+     * Die App verwendet Mantine Alert-Komponenten und ensurance_error_field
+     */
+    private readonly errorMessageSelector = '[class*="Alert-message"], [class*="ensurance_error_field"], [class*="error"], .mantine-Alert-root';
+
+    /**
+     * Sortierungs-Dropdown in der Ergebnisliste.
+     * Optionen: price, priceValueRatio, popularity, valuation
+     */
+    private readonly sortingSelector = '[aria-label*="Sortierung" i], label:has-text("Sortierung") ~ select';
 
     /** Zeitstempel für Performance-Messungen */
     private apiCallStartTime = 0;
@@ -117,97 +179,124 @@ export class RechnerPage {
     /** Rechner direkt aufrufen */
     async goto(): Promise<void> {
         await this.page.goto('/', { waitUntil: 'domcontentloaded' });
-        // TODO: Anpassen — Warten bis der Rechner-Container sichtbar ist
+        // Warten bis die React-App gerendert hat
         await this.page.waitForSelector(this.containerSelector, {
             state: 'visible',
-            timeout: 15_000,
+            timeout: 20_000,
         });
     }
 
     /** Rechner im iFrame-Kontext auf einer Host-Seite öffnen */
     async gotoEmbedded(hostUrl: string): Promise<void> {
         await this.page.goto(hostUrl, { waitUntil: 'domcontentloaded' });
-
-        // TODO: Anpassen — iFrame-Selektor für den eingebetteten Rechner
         const iframeLocator = this.page.frameLocator(
             'iframe[src*="rechner"], iframe[src*="vergleichsrechner"], iframe#rechner-iframe'
         );
         await iframeLocator
             .locator(this.containerSelector)
-            .waitFor({ state: 'visible', timeout: 15_000 });
+            .waitFor({ state: 'visible', timeout: 20_000 });
     }
 
     // ========== Eingaben ==========
 
-    /** Versicherungskategorie auswählen */
-    async selectCategory(category: string): Promise<void> {
-        // TODO: Anpassen — je nach Implementierung: Dropdown, Radio-Buttons oder Tabs
-        const categoryElement = this.page.locator(this.categorySelector);
-        await categoryElement.selectOption({ label: category });
+    /**
+     * Gerätetyp auswählen (Pedelec, E-Bike, Fahrrad, S-Pedelec).
+     * Die ensOptions-Konfiguration zeigt devicekey:"select", d.h. es wird
+     * wahrscheinlich ein Mantine Select gerendert.
+     */
+    async selectDeviceMode(mode: DeviceMode): Promise<void> {
+        const labels: Record<DeviceMode, string> = {
+            pedelec: 'Pedelec',
+            ebike: 'E-Bike',
+            bike: 'Fahrrad',
+            spedelec: 'S-Pedelec',
+        };
+
+        // Variante 1: Mantine Select — klicken und Option wählen
+        const selectInput = this.page.locator(this.deviceModeSelector).first();
+        if (await selectInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
+            await selectInput.click();
+            await this.page.locator(`[role="option"]:has-text("${labels[mode]}")`).click();
+            return;
+        }
+
+        // Variante 2: Button/Karte mit dem Gerätetyp-Label klicken
+        // TODO: Anpassen — falls der Rechner Karten statt Select nutzt
+        const button = this.page.locator(
+            `button:has-text("${labels[mode]}"), [role="button"]:has-text("${labels[mode]}"), a:has-text("${labels[mode]}")`
+        ).first();
+        if (await button.isVisible({ timeout: 3_000 }).catch(() => false)) {
+            await button.click();
+            return;
+        }
+
+        // Variante 3: Radio-Button oder anderes Element
+        await this.page.getByText(labels[mode], { exact: false }).first().click();
     }
 
-    /** Berufsgruppe / Gewerbe eingeben */
-    async enterBusinessType(type: string): Promise<void> {
-        const input = this.page.locator(this.businessTypeSelector);
+    /** Kaufpreis eingeben (in Euro, ohne Nachkommastellen) */
+    async enterPurchasePrice(price: number): Promise<void> {
+        // TODO: Anpassen — Mantine NumberInput hat ggf. eigenes Verhalten
+        const input = this.page.locator(this.purchasePriceSelector).first();
         await input.click();
-        await input.fill(type);
-        // TODO: Anpassen — Autocomplete-Vorschlag auswählen, falls vorhanden
-        // Warten auf Autocomplete-Dropdown und ersten Eintrag klicken
-        const autocompleteItem = this.page.locator(
-            // TODO: Anpassen — Selektor für Autocomplete-Vorschläge
-            '.autocomplete-suggestion, .ui-menu-item, [data-testid="suggestion-item"]'
-        );
-        if (await autocompleteItem.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
-            await autocompleteItem.first().click();
-        }
+        await input.fill(String(price));
+    }
+
+    /** Geburtsdatum eingeben (Format: TT.MM.JJJJ) */
+    async enterBirthDate(date: string): Promise<void> {
+        // TODO: Anpassen — Mantine DateInput erwartet ggf. Klick + Kalender-Auswahl
+        const input = this.page.locator(this.birthDateSelector).first();
+        await input.click();
+        await input.fill(date);
+        // Tab drücken um das Feld zu verlassen (löst Validierung aus)
+        await input.press('Tab');
+    }
+
+    /** Kaufdatum eingeben (Format: TT.MM.JJJJ) */
+    async enterPurchaseDate(date: string): Promise<void> {
+        // TODO: Anpassen — Mantine DateInput
+        const input = this.page.locator(this.purchaseDateSelector).first();
+        await input.click();
+        await input.fill(date);
+        await input.press('Tab');
     }
 
     /** Postleitzahl eingeben */
     async enterPostalCode(plz: string): Promise<void> {
-        const input = this.page.locator(this.postalCodeSelector);
+        const input = this.page.locator(this.postalCodeSelector).first();
         await input.click();
         await input.fill(plz);
     }
 
-    /** Jahresumsatz eingeben */
-    async enterRevenue(amount: number): Promise<void> {
-        const input = this.page.locator(this.revenueSelector);
-        await input.click();
-        await input.fill(String(amount));
+    /** Hersteller eingeben (optional) */
+    async enterManufacturer(name: string): Promise<void> {
+        const input = this.page.locator(this.manufacturerSelector).first();
+        if (await input.isVisible({ timeout: 2_000 }).catch(() => false)) {
+            await input.click();
+            await input.fill(name);
+        }
     }
 
-    /** Mitarbeiteranzahl eingeben */
-    async enterEmployeeCount(count: number): Promise<void> {
-        const input = this.page.locator(this.employeeCountSelector);
-        await input.click();
-        await input.fill(String(count));
-    }
-
-    /** Zusätzliche Felder befüllen (dynamisch, je nach Kategorie) */
-    async fillAdditionalFields(data: Record<string, string>): Promise<void> {
-        for (const [fieldName, value] of Object.entries(data)) {
-            // TODO: Anpassen — Selektoren für dynamische Zusatzfelder
-            const field = this.page.locator(
-                `[data-testid="${fieldName}"], [name="${fieldName}"], #${fieldName}`
-            );
-            if (await field.isVisible({ timeout: 2_000 }).catch(() => false)) {
-                await field.fill(value);
-            }
+    /** Modellbezeichnung eingeben (optional) */
+    async enterModel(name: string): Promise<void> {
+        const input = this.page.locator(this.modelSelector).first();
+        if (await input.isVisible({ timeout: 2_000 }).catch(() => false)) {
+            await input.click();
+            await input.fill(name);
         }
     }
 
     // ========== Aktionen ==========
 
-    /** "Berechnen" / "Vergleichen" Button klicken und Performance-Messung starten */
-    async clickCalculate(): Promise<void> {
+    /** "Jetzt vergleichen" Button klicken und Performance-Messung starten */
+    async clickCompare(): Promise<void> {
         this.apiCallStartTime = Date.now();
-        await this.page.locator(this.calculateButtonSelector).click();
+        await this.page.locator(this.compareButtonSelector).first().click();
     }
 
-    /** Warten bis die Ergebnisliste geladen ist */
+    /** Warten bis die Ergebnisliste / Vergleichstabelle geladen ist */
     async waitForResults(): Promise<void> {
-        // TODO: Anpassen — ggf. Loading-Spinner abwarten
-        await this.page.locator(this.resultsContainerSelector).waitFor({
+        await this.page.locator(this.resultsContainerSelector).first().waitFor({
             state: 'visible',
             timeout: 30_000,
         });
@@ -220,11 +309,6 @@ export class RechnerPage {
         await items.nth(index).click();
     }
 
-    /** Zum Vergleichslink / Detail-Seite weiterleiten */
-    async clickCompare(): Promise<void> {
-        await this.page.locator(this.compareButtonSelector).click();
-    }
-
     // ========== Assertions / Diagnostics ==========
 
     /** Anzahl der angezeigten Ergebnisse ermitteln */
@@ -234,7 +318,11 @@ export class RechnerPage {
 
     /** Prüfen ob sichtbare Fehlermeldungen vorhanden sind */
     async hasErrors(): Promise<boolean> {
-        return this.page.locator(this.errorMessageSelector).isVisible({ timeout: 2_000 }).catch(() => false);
+        return this.page
+            .locator(this.errorMessageSelector)
+            .first()
+            .isVisible({ timeout: 2_000 })
+            .catch(() => false);
     }
 
     /** Alle sichtbaren Fehlermeldungen auslesen */
@@ -249,18 +337,19 @@ export class RechnerPage {
         return messages;
     }
 
-    /** Aktuellen Zustand des Rechners für Debugging erfassen */
+    /** Aktuellen Zustand des Rechners für Debugging erfassen (aus dem Redux-Store) */
     async captureState(): Promise<object> {
         return this.page.evaluate(() => {
-            // TODO: Anpassen — Zugriff auf den internen State des Rechners
-            // Falls der Rechner ein globales State-Objekt exponiert (z.B. window.__RECHNER_STATE__)
             const win = window as unknown as Record<string, unknown>;
             return {
                 url: window.location.href,
                 title: document.title,
-                // Versuche verschiedene State-Quellen zu lesen
-                rechnerState: win.__RECHNER_STATE__ ?? null,
-                formData: win.__RECHNER_FORM__ ?? null,
+                // enscompare exponiert ggf. State über window-Objekte
+                ensOptions: win.ensOptions ?? null,
+                ensFieldsPreload: win.ensFieldsPreload ? 'vorhanden' : null,
+                // Versuche den Redux-Store zu lesen (falls exponiert)
+                reduxState: typeof (win as Record<string, unknown>).__REDUX_DEVTOOLS_EXTENSION__
+                    === 'function' ? 'DevTools verfügbar' : null,
                 visibleText: document.body?.innerText?.substring(0, 500) ?? '',
             };
         });
@@ -291,24 +380,30 @@ export class RechnerPage {
     }
 
     /**
-     * Kompletten Rechner-Flow mit gegebenen Eingabedaten durchlaufen.
-     * Convenience-Methode für häufig verwendete Test-Flows.
+     * Kompletten Rechner-Flow für den E-Bike-Versicherungsvergleich durchlaufen.
+     *
+     * Schritte:
+     *   1. Gerätetyp wählen
+     *   2. Kaufpreis eingeben
+     *   3. Geburtsdatum eingeben
+     *   4. Kaufdatum eingeben
+     *   5. PLZ eingeben
+     *   6. "Jetzt vergleichen" klicken
+     *   7. Auf Ergebnisse warten
      */
     async completeFlow(input: {
-        category: string;
-        business: string;
+        deviceMode: DeviceMode;
+        purchasePrice: number;
+        birthDate: string;
+        purchaseDate: string;
         plz: string;
-        revenue: number;
-        employees?: number;
     }): Promise<void> {
-        await this.selectCategory(input.category);
-        await this.enterBusinessType(input.business);
+        await this.selectDeviceMode(input.deviceMode);
+        await this.enterPurchasePrice(input.purchasePrice);
+        await this.enterBirthDate(input.birthDate);
+        await this.enterPurchaseDate(input.purchaseDate);
         await this.enterPostalCode(input.plz);
-        await this.enterRevenue(input.revenue);
-        if (input.employees !== undefined) {
-            await this.enterEmployeeCount(input.employees);
-        }
-        await this.clickCalculate();
+        await this.clickCompare();
         await this.waitForResults();
     }
 }

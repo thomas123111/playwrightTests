@@ -5,7 +5,7 @@ import path from 'path';
 // .env-Datei laden (falls vorhanden)
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
-const BASE_URL = process.env.RECHNER_URL || 'https://rechner.fixversichert.de';
+const BASE_URL = process.env.RECHNER_URL || 'https://ebikeversicherungen.net/vergleichsrechner/';
 
 export default defineConfig({
     testDir: './tests',
