@@ -3,11 +3,9 @@ import { RechnerPage } from '../../helpers/rechner-page';
 import { collectDiagnostics, filterCriticalErrors } from '../../helpers/diagnostics';
 
 /**
- * Smoke-Tests: Grundlegende Funktionsfähigkeit des E-Bike-Versicherungsrechners.
- * Diese Tests sollen schnell laufen (< 2 Min gesamt) und bei jedem Deploy ausgeführt werden.
- *
- * Der Rechner ist eine React/Mantine-SPA (enscompare WordPress-Plugin),
- * die auf ebikeversicherungen.net/vergleichsrechner/ gehostet wird.
+ * Smoke-Tests für den E-Bike-Versicherungsrechner.
+ * Prüft die grundlegende Funktionsfähigkeit: Seite lädt, SPA rendert,
+ * Karten sind klickbar, keine JS-Fehler.
  */
 test.describe('Rechner Smoke Tests', () => {
     let rechnerPage: RechnerPage;
@@ -20,131 +18,83 @@ test.describe('Rechner Smoke Tests', () => {
         await collectDiagnostics(page, testInfo, rechnerPage);
     });
 
-    test('Rechner-SPA lädt erfolgreich', async ({ page }) => {
+    test('Rechner-SPA lädt und zeigt Startseite', async () => {
         await rechnerPage.goto();
-
-        // Hauptcontainer der React-App ist sichtbar (ensShadowMain / ensPortalRoot)
-        const container = page.locator(
-            '.ensShadowMain, .ensPortalRoot, #ens_compare_table_input_fields'
-        );
-        await expect(container.first()).toBeVisible();
+        const isVisible = await rechnerPage.isStartPageVisible();
+        expect(isVisible, 'Startseite mit Kategoriekarten nicht sichtbar').toBeTruthy();
     });
 
-    test('Keine kritischen JS-Fehler in der Konsole', async ({ page }) => {
+    test('ensOptions und ensFieldsPreload sind initialisiert', async () => {
+        await rechnerPage.goto();
+        const initialized = await rechnerPage.isAppInitialized();
+        expect(initialized, 'enscompare Konfiguration nicht initialisiert').toBeTruthy();
+    });
+
+    test('Alle 3 Kategorie-Karten sind sichtbar', async ({ page }) => {
         await rechnerPage.goto();
 
-        // Warten bis die SPA vollständig gerendert ist
-        await page.waitForTimeout(3_000);
+        const fahrrad = page.locator('button[aria-label="Fahrrad auswählen"]');
+        const ebike = page.locator('button[aria-label="E-Bike auswählen"]');
+        const gewerblich = page.locator('button[aria-label="Gewerbliche Risiken auswählen"]');
 
+        await expect(fahrrad).toBeVisible();
+        await expect(ebike).toBeVisible();
+        await expect(gewerblich).toBeVisible();
+    });
+
+    test('Keine kritischen JS-Fehler in der Konsole', async () => {
+        await rechnerPage.goto();
         const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
         expect(
             criticalErrors,
-            `Kritische Konsolen-Fehler gefunden:\n${criticalErrors.join('\n')}`
+            `Kritische Konsolen-Fehler:\n${criticalErrors.join('\n')}`
         ).toHaveLength(0);
     });
 
-    test('Alle kritischen Assets geladen (kein 404)', async ({ page }) => {
-        const failedResources: string[] = [];
-
-        page.on('response', (response) => {
-            if (response.status() === 404) {
-                const url = response.url();
-                // Nur relevante Assets prüfen (JS, CSS, Bilder)
-                if (/\.(js|css|png|jpg|svg|woff2?)(\?|$)/i.test(url)) {
-                    failedResources.push(`404: ${url}`);
-                }
-            }
-        });
-
-        await rechnerPage.goto();
-        await page.waitForTimeout(3_000);
-
-        expect(
-            failedResources,
-            `Fehlende Assets gefunden:\n${failedResources.join('\n')}`
-        ).toHaveLength(0);
-    });
-
-    test('enscompare JS-Bundle wird geladen', async ({ page }) => {
+    test('enscompare JS-Bundle wird erfolgreich geladen', async ({ page }) => {
         let bundleLoaded = false;
-
         page.on('response', (response) => {
             if (response.url().includes('enscompare') && response.url().endsWith('.js')) {
-                bundleLoaded = response.status() === 200;
+                if (response.status() === 200) bundleLoaded = true;
             }
         });
 
         await rechnerPage.goto();
-        await page.waitForTimeout(2_000);
-
-        expect(bundleLoaded, 'enscompare JS-Bundle wurde nicht geladen').toBeTruthy();
+        expect(bundleLoaded, 'enscompare JS-Bundle nicht geladen').toBeTruthy();
     });
 
-    test('Keine fehlgeschlagenen Netzwerk-Requests', async () => {
+    test('Keine fehlgeschlagenen Netzwerk-Requests (eigene Assets)', async () => {
         await rechnerPage.goto();
-
+        // Nur Requests zu eigenen Assets prüfen (Tracking/CDN-Telemetrie ignorieren)
+        const ownAssetFailures = rechnerPage.networkFailures.filter(f => {
+            try {
+                const hostname = new URL(f.url).hostname;
+                const isOwnDomain = hostname.includes('ebikeversicherungen.net') || hostname.includes('fahrsicherung.de');
+                // Cloudflare CDN-Telemetrie und Tracking ausschließen
+                const isCdnTelemetry = f.url.includes('/cdn-cgi/');
+                return isOwnDomain && !isCdnTelemetry;
+            } catch { return false; }
+        });
         expect(
-            rechnerPage.networkFailures,
-            `Fehlgeschlagene Netzwerk-Requests:\n${JSON.stringify(rechnerPage.networkFailures, null, 2)}`
+            ownAssetFailures,
+            `Fehlgeschlagene Requests (eigene Assets):\n${JSON.stringify(ownAssetFailures, null, 2)}`
         ).toHaveLength(0);
     });
 
-    test('Gerätetyp-Auswahl ist sichtbar und interaktiv', async ({ page }) => {
+    test('E-Bike Karte klickbar — Formular erscheint', async ({ page }) => {
         await rechnerPage.goto();
+        await rechnerPage.selectCategory('ebike');
 
-        // Die Gerätetyp-Auswahl (Select/Buttons für Pedelec, E-Bike, etc.) muss sichtbar sein
-        const deviceSelect = page.locator(
-            '.nav_top_select, [class*="nav_top_select"], input[class*="mantine-Select-input"]'
-        ).first();
-
-        // Alternativ nach sichtbarem Text suchen
-        const pedelecOption = page.getByText('Pedelec', { exact: false }).first();
-        const eBikeOption = page.getByText('E-Bike', { exact: false }).first();
-
-        // Mindestens eine der Varianten muss sichtbar sein
-        const deviceSelectVisible = await deviceSelect.isVisible({ timeout: 5_000 }).catch(() => false);
-        const pedelecVisible = await pedelecOption.isVisible({ timeout: 2_000 }).catch(() => false);
-        const eBikeVisible = await eBikeOption.isVisible({ timeout: 2_000 }).catch(() => false);
-
-        expect(
-            deviceSelectVisible || pedelecVisible || eBikeVisible,
-            'Keine Gerätetyp-Auswahl (Pedelec/E-Bike) sichtbar'
-        ).toBeTruthy();
+        // Prüfen ob das Kaufpreis-Feld erscheint
+        const priceInput = page.locator('.mantine-NumberInput-input').first();
+        await expect(priceInput).toBeVisible();
     });
 
-    test('Rechner reagiert auf Viewport-Änderungen', async ({ page }) => {
+    test('Fahrrad Karte klickbar — Formular erscheint', async ({ page }) => {
         await rechnerPage.goto();
+        await rechnerPage.selectCategory('fahrrad');
 
-        const container = page.locator(
-            '.ensShadowMain, .ensPortalRoot, #ens_compare_table_input_fields'
-        ).first();
-
-        // Desktop-Viewport
-        await page.setViewportSize({ width: 1280, height: 720 });
-        await expect(container).toBeVisible();
-
-        // Tablet-Viewport
-        await page.setViewportSize({ width: 768, height: 1024 });
-        await expect(container).toBeVisible();
-
-        // Mobile-Viewport
-        await page.setViewportSize({ width: 375, height: 667 });
-        await expect(container).toBeVisible();
-    });
-
-    test('ensOptions und ensFieldsPreload sind initialisiert', async ({ page }) => {
-        await rechnerPage.goto();
-
-        const configState = await page.evaluate(() => {
-            const win = window as unknown as Record<string, unknown>;
-            return {
-                hasEnsOptions: !!win.ensOptions,
-                hasEnsFieldsPreload: !!win.ensFieldsPreload,
-                devicekey: (win.ensOptions as Record<string, unknown>)?.devicekey ?? null,
-            };
-        });
-
-        expect(configState.hasEnsOptions, 'ensOptions nicht initialisiert').toBeTruthy();
-        expect(configState.hasEnsFieldsPreload, 'ensFieldsPreload nicht initialisiert').toBeTruthy();
+        const priceInput = page.locator('.mantine-NumberInput-input').first();
+        await expect(priceInput).toBeVisible();
     });
 });

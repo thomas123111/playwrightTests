@@ -1,5 +1,6 @@
-import { type Page, type FrameLocator } from '@playwright/test';
-import type { DeviceMode } from '../fixtures/test-data';
+import { type Page } from '@playwright/test';
+import type { BikeCategory, ValidInput } from '../fixtures/test-data';
+import { TEST_DATA } from '../fixtures/test-data';
 
 /**
  * Gesammelte Informationen über einen fehlgeschlagenen Netzwerk-Request
@@ -14,19 +15,25 @@ export interface NetworkFailure {
 /**
  * Page Object Model für den E-Bike-Versicherungsrechner (enscompare).
  *
- * Der Rechner ist eine React/Mantine-SPA, die als WordPress-Plugin
- * (enscompare) ausgeliefert wird. Die App rendert im Shadow DOM
- * unter der Klasse "ensShadowMain" und hat ein Portal-Root "ensPortalRoot".
+ * ARCHITEKTUR:
+ * - WordPress-Plugin "enscompare" → React/Mantine SPA
+ * - Rendert im Shadow DOM unter #ensurance_view_root → .ensShadowMain
+ * - Konfiguration in window.ensOptions + window.ensFieldsPreload
+ * - Alle Formular-Elemente liegen IM Shadow DOM
  *
- * Navigationsschritte (Redux state):
- *   devicemode_selected → bikeInput → ensuranceList → (checkout/summary/payment)
+ * STARTSEITE:
+ * - H1: "Ihre Bike-Versicherung"
+ * - 3 Karten-Buttons: "Fahrrad" / "E-Bike" / "Gewerbliche Risiken"
+ *   (selektierbar via aria-label)
  *
- * Bike-Daten werden im Redux-Store unter userData.bikes[bikeId] gespeichert.
- * Globale Felder (plz, birthday) liegen unter userData direkt.
- *
- * HINWEIS: Einige Selektoren können sich ändern, da die App CSS-Module
- * und Mantine-Klassen verwendet. Bei Änderungen die betroffenen
- * Selektoren in dieser Datei anpassen.
+ * FORMULAR (nach Karten-Klick):
+ * - Kaufpreis: .mantine-NumberInput-input (placeholder "1200 €")
+ * - PLZ: label "Postleitzahl" → verknüpftes Input via for-Attribut
+ * - Kaufdatum: 3 Felder mit placeholder "Tag"/"Monat"/"Jahr" (erste Gruppe)
+ * - Geburtsdatum: 3 Felder mit placeholder "Tag"/"Monat"/"Jahr" (zweite Gruppe)
+ * - Dropdowns: Bike-Bauart, Kaufart, Kauf als (Mantine Select)
+ * - Radio-Buttons: Carbonteile, GPS-Tracker, Gutscheincode
+ * - Submit: Button "Angebote ansehen"
  */
 export class RechnerPage {
     readonly page: Page;
@@ -37,109 +44,6 @@ export class RechnerPage {
     /** Gesammelte fehlgeschlagene Netzwerk-Requests */
     networkFailures: NetworkFailure[] = [];
 
-    // ======================================================================
-    // Selektoren
-    // Die App ist eine React-SPA. Formularfelder werden über Mantine-
-    // Komponenten gerendert. Selektoren basieren auf der JS-Bundle-Analyse.
-    // ======================================================================
-
-    /** Hauptcontainer — die App rendert ggf. im Shadow DOM */
-    // Die SPA mountet mit classList.add("ensShadowMain") und "ensPortalRoot"
-    private readonly containerSelector = '.ensShadowMain, .ensPortalRoot, #ens_compare_table_input_fields';
-
-    /**
-     * Gerätetyp-Auswahl (Pedelec, E-Bike, Fahrrad, S-Pedelec).
-     * Wird als Mantine Select oder als Button-Gruppe gerendert.
-     * Die Option "devicekey":"select" in ensOptions zeigt eine Select-Komponente.
-     */
-    // TODO: Anpassen — der genaue Selektor hängt vom Rendering ab
-    // Mögliche Varianten: Mantine Select (.mantine-Select-input), Radio-Buttons, oder Karten
-    private readonly deviceModeSelector = '.nav_top_select, [class*="nav_top_select"], input[class*="mantine-Select-input"]';
-
-    /**
-     * Kaufpreis-Feld.
-     * Redux-Key: userData.bikes[bikeId].price
-     * Label: "Kaufpreis"
-     */
-    // TODO: Anpassen — Mantine NumberInput oder TextInput mit label "Kaufpreis"
-    private readonly purchasePriceSelector = 'input[aria-label*="Kaufpreis" i], input[placeholder*="Kaufpreis" i], label:has-text("Kaufpreis") + input, label:has-text("Kaufpreis") ~ input';
-
-    /**
-     * Geburtsdatum-Feld.
-     * Redux-Key: userData.birthday (via field:"birthday", isBday:true)
-     * Label: "Geburtsdatum"
-     */
-    // TODO: Anpassen — Mantine DateInput oder DatePicker
-    private readonly birthDateSelector = 'input[aria-label*="Geburtsdatum" i], input[placeholder*="Geburtsdatum" i], label:has-text("Geburtsdatum") + input, label:has-text("Geburtsdatum") ~ input';
-
-    /**
-     * Kaufdatum-Feld.
-     * Redux-Key: userData.bikes[bikeId].buyDate
-     * In der App-Logik wird das Kaufdatum teils automatisch auf heute gesetzt.
-     */
-    // TODO: Anpassen — Kaufdatum-Feld, ggf. als DatePicker
-    private readonly purchaseDateSelector = 'input[aria-label*="Kaufdatum" i], input[placeholder*="Kaufdatum" i], label:has-text("Kaufdatum") + input, label:has-text("Kaufdatum") ~ input';
-
-    /**
-     * PLZ-Feld.
-     * Redux-Key: userData.plz
-     * Label: "Postleitzahl"
-     * Validierung: digits_between:5,5 (DE) oder digits_between:4,4 (AT)
-     */
-    private readonly postalCodeSelector = 'input[aria-label*="Postleitzahl" i], input[placeholder*="Postleitzahl" i], label:has-text("Postleitzahl") + input, label:has-text("Postleitzahl") ~ input';
-
-    /**
-     * Hersteller-Feld (optional).
-     * Redux-Key: userData.bikes[bikeId].bikeMarke
-     * Label: "Hersteller"
-     */
-    private readonly manufacturerSelector = 'input[aria-label*="Hersteller" i], label:has-text("Hersteller") + input, label:has-text("Hersteller") ~ input';
-
-    /**
-     * Modell-Feld (optional).
-     * Redux-Key: userData.bikes[bikeId].bikeTypeName
-     * Label: "Modellbezeichnung"
-     */
-    private readonly modelSelector = 'input[aria-label*="Modell" i], label:has-text("Modellbezeichnung") + input, label:has-text("Modellbezeichnung") ~ input';
-
-    /**
-     * "Jetzt vergleichen" / "Angebot anfordern" Button.
-     * CSS-Klasse: vergleicherButton (CSS-Module-Hash)
-     */
-    // TODO: Anpassen — der Button-Text variiert je nach Kontext
-    private readonly compareButtonSelector = 'button:has-text("Jetzt vergleichen"), button:has-text("Angebot anfordern"), button[class*="vergleicherButton"]';
-
-    /**
-     * Ergebnis-Container — die Vergleichstabelle mit Tarifen.
-     * ID: ens_compare_table_input_fields (im JS sichtbar)
-     * CSS-Klasse: compareTable / compareTableTop
-     */
-    private readonly resultsContainerSelector = '#ens_compare_table_input_fields, [class*="compareTable"], .ensuranceList';
-
-    /**
-     * Einzelner Tarif in der Ergebnisliste.
-     * Jeder Tarif wird als Karte/Zeile mit ensName und priceContainer dargestellt.
-     */
-    // TODO: Anpassen — Selektor für einzelne Tarif-Einträge
-    private readonly resultItemSelector = '[class*="ensName"], [class*="addEnsItem"], [class*="headerBox"]';
-
-    /**
-     * Preis-Anzeige in der Ergebnisliste
-     */
-    private readonly priceSelector = '[class*="priceContainer"], [class*="priceText"]';
-
-    /**
-     * Fehlermeldungen
-     * Die App verwendet Mantine Alert-Komponenten und ensurance_error_field
-     */
-    private readonly errorMessageSelector = '[class*="Alert-message"], [class*="ensurance_error_field"], [class*="error"], .mantine-Alert-root';
-
-    /**
-     * Sortierungs-Dropdown in der Ergebnisliste.
-     * Optionen: price, priceValueRatio, popularity, valuation
-     */
-    private readonly sortingSelector = '[aria-label*="Sortierung" i], label:has-text("Sortierung") ~ select';
-
     /** Zeitstempel für Performance-Messungen */
     private apiCallStartTime = 0;
     private apiCallEndTime = 0;
@@ -149,12 +53,7 @@ export class RechnerPage {
         this.setupListeners();
     }
 
-    /**
-     * Registriert Event-Listener für Konsolen-Fehler und Netzwerk-Failures.
-     * Wird im Konstruktor automatisch aufgerufen.
-     */
     private setupListeners(): void {
-        // Konsolen-Fehler sammeln
         this.page.on('console', (msg) => {
             if (msg.type() === 'error') {
                 this.consoleErrors.push(
@@ -163,7 +62,6 @@ export class RechnerPage {
             }
         });
 
-        // Fehlgeschlagene Netzwerk-Requests loggen
         this.page.on('requestfailed', (request) => {
             this.networkFailures.push({
                 url: request.url(),
@@ -176,202 +74,204 @@ export class RechnerPage {
 
     // ========== Navigation ==========
 
-    /** Rechner direkt aufrufen */
+    /** Rechner laden und warten bis die React-SPA gerendert hat */
     async goto(): Promise<void> {
-        await this.page.goto('/', { waitUntil: 'domcontentloaded' });
-        // Warten bis die React-App gerendert hat
-        await this.page.waitForSelector(this.containerSelector, {
-            state: 'visible',
-            timeout: 20_000,
-        });
-    }
+        const domain = process.env.RECHNER_DOMAIN || 'ebikeversicherungen.net';
+        const baseUrl = process.env.RECHNER_URL || 'https://ebikeversicherungen.net/vergleichsrechner/';
 
-    /** Rechner im iFrame-Kontext auf einer Host-Seite öffnen */
-    async gotoEmbedded(hostUrl: string): Promise<void> {
-        await this.page.goto(hostUrl, { waitUntil: 'domcontentloaded' });
-        const iframeLocator = this.page.frameLocator(
-            'iframe[src*="rechner"], iframe[src*="vergleichsrechner"], iframe#rechner-iframe'
-        );
-        await iframeLocator
-            .locator(this.containerSelector)
-            .waitFor({ state: 'visible', timeout: 20_000 });
+        // Schritt 1: Seite initial laden (etabliert Domain/Session-Cookies).
+        // Volle URL verwenden, da der Proxy auf Browser-Ebene konfiguriert sein muss.
+        await this.page.goto(baseUrl, { timeout: 60_000, waitUntil: 'load' }).catch(() => {});
+        await this.page.waitForTimeout(3_000);
+
+        // Schritt 2: Borlabs-Consent-Cookie setzen (nach dem ersten Load,
+        // damit die Domain im Cookie-Store existiert).
+        // Ohne diesen Cookie blockiert Borlabs das enscompare-JS.
+        await this.page.context().addCookies([{
+            name: 'borlabs-cookie',
+            value: JSON.stringify({
+                consents: {
+                    essential: ['borlabs-cookie'],
+                    statistics: ['matomo'],
+                    marketing: ['facebook-pixel'],
+                    'external-media': [],
+                },
+            }),
+            domain,
+            path: '/',
+        }]);
+
+        // Schritt 3: Seite neu laden — diesmal mit Consent → kein Banner → SPA rendert
+        await this.page.reload({ timeout: 60_000, waitUntil: 'load' }).catch(() => {});
+
+        // Schritt 4: SPA braucht Zeit zum Rendern (Shadow DOM + React)
+        await this.page.waitForTimeout(10_000);
+
+        // Schritt 5: Auf die SPA-Karten warten
+        await this.page.locator('button[aria-label="E-Bike auswählen"]')
+            .waitFor({ state: 'visible', timeout: 15_000 });
     }
 
     // ========== Eingaben ==========
 
     /**
-     * Gerätetyp auswählen (Pedelec, E-Bike, Fahrrad, S-Pedelec).
-     * Die ensOptions-Konfiguration zeigt devicekey:"select", d.h. es wird
-     * wahrscheinlich ein Mantine Select gerendert.
+     * Kategorie-Karte auf der Startseite klicken.
+     * Die Karten haben stabile aria-labels:
+     *   - "Fahrrad auswählen"
+     *   - "E-Bike auswählen"
+     *   - "Gewerbliche Risiken auswählen"
      */
-    async selectDeviceMode(mode: DeviceMode): Promise<void> {
-        const labels: Record<DeviceMode, string> = {
-            pedelec: 'Pedelec',
-            ebike: 'E-Bike',
-            bike: 'Fahrrad',
-            spedelec: 'S-Pedelec',
+    async selectCategory(category: BikeCategory): Promise<void> {
+        const ariaLabels: Record<BikeCategory, string> = {
+            fahrrad: 'Fahrrad auswählen',
+            ebike: 'E-Bike auswählen',
+            gewerblich: 'Gewerbliche Risiken auswählen',
         };
-
-        // Variante 1: Mantine Select — klicken und Option wählen
-        const selectInput = this.page.locator(this.deviceModeSelector).first();
-        if (await selectInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-            await selectInput.click();
-            await this.page.locator(`[role="option"]:has-text("${labels[mode]}")`).click();
-            return;
-        }
-
-        // Variante 2: Button/Karte mit dem Gerätetyp-Label klicken
-        // TODO: Anpassen — falls der Rechner Karten statt Select nutzt
-        const button = this.page.locator(
-            `button:has-text("${labels[mode]}"), [role="button"]:has-text("${labels[mode]}"), a:has-text("${labels[mode]}")`
-        ).first();
-        if (await button.isVisible({ timeout: 3_000 }).catch(() => false)) {
-            await button.click();
-            return;
-        }
-
-        // Variante 3: Radio-Button oder anderes Element
-        await this.page.getByText(labels[mode], { exact: false }).first().click();
+        await this.page.locator(`button[aria-label="${ariaLabels[category]}"]`).click();
+        // Warten bis das Formular erscheint
+        await this.page.locator('.mantine-NumberInput-input').first()
+            .waitFor({ state: 'visible', timeout: 10_000 });
     }
 
-    /** Kaufpreis eingeben (in Euro, ohne Nachkommastellen) */
+    /** Kaufpreis eingeben (Mantine NumberInput mit placeholder "1200 €") */
     async enterPurchasePrice(price: number): Promise<void> {
-        // TODO: Anpassen — Mantine NumberInput hat ggf. eigenes Verhalten
-        const input = this.page.locator(this.purchasePriceSelector).first();
+        const input = this.page.locator('.mantine-NumberInput-input').first();
         await input.click();
         await input.fill(String(price));
     }
 
-    /** Geburtsdatum eingeben (Format: TT.MM.JJJJ) */
-    async enterBirthDate(date: string): Promise<void> {
-        // TODO: Anpassen — Mantine DateInput erwartet ggf. Klick + Kalender-Auswahl
-        const input = this.page.locator(this.birthDateSelector).first();
-        await input.click();
-        await input.fill(date);
-        // Tab drücken um das Feld zu verlassen (löst Validierung aus)
-        await input.press('Tab');
-    }
-
-    /** Kaufdatum eingeben (Format: TT.MM.JJJJ) */
-    async enterPurchaseDate(date: string): Promise<void> {
-        // TODO: Anpassen — Mantine DateInput
-        const input = this.page.locator(this.purchaseDateSelector).first();
-        await input.click();
-        await input.fill(date);
-        await input.press('Tab');
-    }
-
-    /** Postleitzahl eingeben */
+    /** PLZ eingeben (Feld mit placeholder "10115") */
     async enterPostalCode(plz: string): Promise<void> {
-        const input = this.page.locator(this.postalCodeSelector).first();
-        await input.click();
-        await input.fill(plz);
+        await this.page.locator('input[placeholder="10115"]').fill(plz);
     }
 
-    /** Hersteller eingeben (optional) */
-    async enterManufacturer(name: string): Promise<void> {
-        const input = this.page.locator(this.manufacturerSelector).first();
-        if (await input.isVisible({ timeout: 2_000 }).catch(() => false)) {
-            await input.click();
-            await input.fill(name);
-        }
+    /**
+     * Kaufdatum eingeben (3 Felder: Tag, Monat, Jahr).
+     * Die ersten 3 Datums-Felder auf der Seite gehören zum Kaufdatum.
+     */
+    async enterPurchaseDate(day: string, month: string, year: string): Promise<void> {
+        const dayInputs = this.page.locator('input[placeholder="Tag"]');
+        const monthInputs = this.page.locator('input[placeholder="Monat"]');
+        const yearInputs = this.page.locator('input[placeholder="Jahr"]');
+        // Erstes Auftreten = Kaufdatum
+        await dayInputs.nth(0).fill(day);
+        await monthInputs.nth(0).fill(month);
+        await yearInputs.nth(0).fill(year);
     }
 
-    /** Modellbezeichnung eingeben (optional) */
-    async enterModel(name: string): Promise<void> {
-        const input = this.page.locator(this.modelSelector).first();
-        if (await input.isVisible({ timeout: 2_000 }).catch(() => false)) {
-            await input.click();
-            await input.fill(name);
-        }
+    /**
+     * Geburtsdatum eingeben (3 Felder: Tag, Monat, Jahr).
+     * Die zweiten 3 Datums-Felder auf der Seite gehören zum Geburtsdatum.
+     */
+    async enterBirthDate(day: string, month: string, year: string): Promise<void> {
+        const dayInputs = this.page.locator('input[placeholder="Tag"]');
+        const monthInputs = this.page.locator('input[placeholder="Monat"]');
+        const yearInputs = this.page.locator('input[placeholder="Jahr"]');
+        // Zweites Auftreten = Geburtsdatum
+        await dayInputs.nth(1).fill(day);
+        await monthInputs.nth(1).fill(month);
+        await yearInputs.nth(1).fill(year);
     }
 
     // ========== Aktionen ==========
 
-    /** "Jetzt vergleichen" Button klicken und Performance-Messung starten */
-    async clickCompare(): Promise<void> {
+    /** "Angebote ansehen" klicken und Performance-Messung starten */
+    async clickViewOffers(): Promise<void> {
         this.apiCallStartTime = Date.now();
-        await this.page.locator(this.compareButtonSelector).first().click();
+        await this.page.locator('button:has-text("Angebote ansehen")').click();
     }
 
-    /** Warten bis die Ergebnisliste / Vergleichstabelle geladen ist */
+    /** Warten bis die Ergebnisseite geladen ist */
     async waitForResults(): Promise<void> {
-        await this.page.locator(this.resultsContainerSelector).first().waitFor({
-            state: 'visible',
-            timeout: 30_000,
-        });
+        // Warten bis sich die Seite ändert — neue Elemente erscheinen
+        await this.page.waitForTimeout(TEST_DATA.resultsWait);
         this.apiCallEndTime = Date.now();
-    }
-
-    /** Einen bestimmten Tarif aus der Ergebnisliste auswählen */
-    async selectTariff(index: number): Promise<void> {
-        const items = this.page.locator(this.resultItemSelector);
-        await items.nth(index).click();
     }
 
     // ========== Assertions / Diagnostics ==========
 
-    /** Anzahl der angezeigten Ergebnisse ermitteln */
+    /** Prüft ob die Startseiten-Karten sichtbar sind */
+    async isStartPageVisible(): Promise<boolean> {
+        return this.page.locator('button[aria-label="E-Bike auswählen"]')
+            .isVisible({ timeout: 5_000 }).catch(() => false);
+    }
+
+    /** Prüft ob das enscompare JS-Bundle geladen wurde */
+    async isAppInitialized(): Promise<boolean> {
+        return this.page.evaluate(() => {
+            const win = window as unknown as Record<string, unknown>;
+            return !!win.ensOptions && !!win.ensFieldsPreload;
+        });
+    }
+
+    /** Zählt die Tarif-Ergebniskarten (mantine-Card-root mit Preisangabe) */
     async getResultCount(): Promise<number> {
-        return this.page.locator(this.resultItemSelector).count();
+        return this.page.evaluate(() => {
+            const root = document.getElementById('ensurance_view_root');
+            const shadow = root?.firstElementChild?.shadowRoot;
+            if (!shadow) return 0;
+            // Jeder Tarif ist eine mantine-Card mit €-Preisangabe und Höhe > 100px
+            const cards = shadow.querySelectorAll('.mantine-Card-root');
+            let count = 0;
+            cards.forEach(card => {
+                const hasPrice = (card.textContent || '').includes('€');
+                const isVisible = card.getBoundingClientRect().height > 100;
+                if (hasPrice && isVisible) count++;
+            });
+            return count;
+        });
     }
 
-    /** Prüfen ob sichtbare Fehlermeldungen vorhanden sind */
+    /** Prüft ob Fehlermeldungen sichtbar sind */
     async hasErrors(): Promise<boolean> {
-        return this.page
-            .locator(this.errorMessageSelector)
-            .first()
-            .isVisible({ timeout: 2_000 })
-            .catch(() => false);
+        return this.page.evaluate(() => {
+            const root = document.getElementById('ensurance_view_root');
+            const shadow = root?.firstElementChild?.shadowRoot;
+            if (!shadow) return false;
+            const alerts = shadow.querySelectorAll('.mantine-Alert-root, [class*="error"]');
+            return alerts.length > 0;
+        });
     }
 
-    /** Alle sichtbaren Fehlermeldungen auslesen */
+    /** Sichtbare Fehlermeldungen auslesen */
     async getVisibleErrorMessages(): Promise<string[]> {
-        const errorElements = this.page.locator(this.errorMessageSelector);
-        const count = await errorElements.count();
-        const messages: string[] = [];
-        for (let i = 0; i < count; i++) {
-            const text = await errorElements.nth(i).textContent();
-            if (text) messages.push(text.trim());
-        }
-        return messages;
+        return this.page.evaluate(() => {
+            const root = document.getElementById('ensurance_view_root');
+            const shadow = root?.firstElementChild?.shadowRoot;
+            if (!shadow) return [];
+            const msgs: string[] = [];
+            shadow.querySelectorAll('.mantine-Alert-root, [class*="error"]').forEach(el => {
+                const text = el.textContent?.trim();
+                if (text) msgs.push(text.substring(0, 200));
+            });
+            return msgs;
+        });
     }
 
-    /** Aktuellen Zustand des Rechners für Debugging erfassen (aus dem Redux-Store) */
+    /** Aktuellen Zustand des Rechners für Debugging erfassen */
     async captureState(): Promise<object> {
         return this.page.evaluate(() => {
             const win = window as unknown as Record<string, unknown>;
+            const root = document.getElementById('ensurance_view_root');
+            const shadow = root?.firstElementChild?.shadowRoot;
             return {
                 url: window.location.href,
-                title: document.title,
-                // enscompare exponiert ggf. State über window-Objekte
-                ensOptions: win.ensOptions ?? null,
-                ensFieldsPreload: win.ensFieldsPreload ? 'vorhanden' : null,
-                // Versuche den Redux-Store zu lesen (falls exponiert)
-                reduxState: typeof (win as Record<string, unknown>).__REDUX_DEVTOOLS_EXTENSION__
-                    === 'function' ? 'DevTools verfügbar' : null,
-                visibleText: document.body?.innerText?.substring(0, 500) ?? '',
+                hasEnsOptions: !!win.ensOptions,
+                hasEnsFieldsPreload: !!win.ensFieldsPreload,
+                shadowRootExists: !!shadow,
+                shadowElementCount: shadow?.querySelectorAll('*').length ?? 0,
+                visibleText: shadow?.textContent?.substring(0, 500) ?? document.body?.innerText?.substring(0, 500) ?? '',
             };
         });
     }
 
     /** Dauer des letzten API-Calls in Millisekunden */
-    async getApiCallDuration(): Promise<number> {
+    getApiCallDuration(): number {
         if (this.apiCallStartTime === 0) return -1;
         return this.apiCallEndTime - this.apiCallStartTime;
     }
 
-    /** Prüft ob Preise in den Ergebnissen angezeigt werden */
-    async resultsContainPrices(): Promise<boolean> {
-        const priceElements = this.page.locator(this.priceSelector);
-        const count = await priceElements.count();
-        return count > 0;
-    }
-
-    /**
-     * Gesammelten Fehler-State zurücksetzen.
-     * Nützlich wenn ein Test mehrere Szenarien nacheinander durchläuft.
-     */
+    /** Gesammelten Fehler-State zurücksetzen */
     resetErrorCollectors(): void {
         this.consoleErrors = [];
         this.networkFailures = [];
@@ -380,30 +280,16 @@ export class RechnerPage {
     }
 
     /**
-     * Kompletten Rechner-Flow für den E-Bike-Versicherungsvergleich durchlaufen.
-     *
-     * Schritte:
-     *   1. Gerätetyp wählen
-     *   2. Kaufpreis eingeben
-     *   3. Geburtsdatum eingeben
-     *   4. Kaufdatum eingeben
-     *   5. PLZ eingeben
-     *   6. "Jetzt vergleichen" klicken
-     *   7. Auf Ergebnisse warten
+     * Kompletten Rechner-Flow durchlaufen:
+     * Kategorie wählen → Formular ausfüllen → Angebote ansehen
      */
-    async completeFlow(input: {
-        deviceMode: DeviceMode;
-        purchasePrice: number;
-        birthDate: string;
-        purchaseDate: string;
-        plz: string;
-    }): Promise<void> {
-        await this.selectDeviceMode(input.deviceMode);
+    async completeFlow(input: ValidInput): Promise<void> {
+        await this.selectCategory(input.category);
         await this.enterPurchasePrice(input.purchasePrice);
-        await this.enterBirthDate(input.birthDate);
-        await this.enterPurchaseDate(input.purchaseDate);
         await this.enterPostalCode(input.plz);
-        await this.clickCompare();
+        await this.enterPurchaseDate(input.purchaseDay, input.purchaseMonth, input.purchaseYear);
+        await this.enterBirthDate(input.birthDay, input.birthMonth, input.birthYear);
+        await this.clickViewOffers();
         await this.waitForResults();
     }
 }

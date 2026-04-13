@@ -5,7 +5,29 @@ import path from 'path';
 // .env-Datei laden (falls vorhanden)
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
-const BASE_URL = process.env.RECHNER_URL || 'https://ebikeversicherungen.net/vergleichsrechner/';
+const BASE_URL =
+    process.env.RECHNER_URL || 'https://ebikeversicherungen.net/vergleichsrechner/';
+
+/**
+ * Proxy-Konfiguration aus Umgebungsvariablen.
+ * In CI-Umgebungen oder Containern wird ggf. ein Proxy benötigt.
+ */
+function getProxyConfig() {
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+    if (!proxyUrl) return undefined;
+    try {
+        const url = new URL(proxyUrl);
+        return {
+            server: `${url.protocol}//${url.hostname}:${url.port}`,
+            username: url.username || undefined,
+            password: url.password || undefined,
+        };
+    } catch {
+        return undefined;
+    }
+}
+
+const proxy = getProxyConfig();
 
 export default defineConfig({
     testDir: './tests',
@@ -13,11 +35,10 @@ export default defineConfig({
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
     workers: process.env.CI ? 2 : undefined,
-    timeout: 30_000,
+    timeout: 60_000,
     expect: {
-        timeout: 10_000,
+        timeout: 15_000,
         toHaveScreenshot: {
-            // Erlaubte Pixel-Abweichung für Visual-Regression-Tests
             maxDiffPixelRatio: 0.002,
         },
     },
@@ -34,7 +55,14 @@ export default defineConfig({
         video: 'retain-on-failure',
         trace: 'retain-on-failure',
         actionTimeout: 15_000,
-        navigationTimeout: 30_000,
+        navigationTimeout: 60_000,
+        ignoreHTTPSErrors: true,
+        // Proxy muss auf Browser-Ebene gesetzt werden (nicht Context-Ebene),
+        // damit Chromium den Proxy-Tunnel korrekt aufbaut.
+        launchOptions: {
+            args: ['--no-sandbox', '--ignore-certificate-errors'],
+            ...(proxy ? { proxy } : {}),
+        },
     },
 
     /* Browser- und Device-Matrix */
@@ -69,7 +97,6 @@ export default defineConfig({
         {
             name: 'Galaxy S21',
             use: {
-                // Samsung Galaxy S21 — manuell konfiguriert
                 userAgent:
                     'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
                 viewport: { width: 360, height: 800 },

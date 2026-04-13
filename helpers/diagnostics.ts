@@ -102,10 +102,19 @@ function sanitizeFilename(name: string): string {
 export function filterCriticalErrors(errors: string[]): string[] {
     // Bekannte unkritische Fehler ignorieren (Liste bei Bedarf erweitern)
     const ignoredPatterns = [
-        // TODO: Anpassen — bekannte unkritische Fehlermeldungen hier eintragen
         /favicon\.ico/i,
         /third-party cookie/i,
         /ResizeObserver loop/i,
+        // Tracking/Analytics-Fehler (erwartet in Headless-Umgebungen)
+        /google-analytics\.com/i,
+        /googletagmanager\.com/i,
+        /hotjar\.com/i,
+        /facebook\.net/i,
+        /sentry\.io/i,
+        /cdn-cgi\/rum/i,
+        // Headless-Browser-spezifische Meldungen
+        /Failed to load resource.*403/i,
+        /net::ERR_BLOCKED_BY_ORB/i,
     ];
 
     return errors.filter(

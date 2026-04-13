@@ -36,11 +36,11 @@ test.describe('Visual Regression', () => {
     test('Formular ausgefüllt — Pedelec mit allen Feldern', async ({ page }) => {
         await rechnerPage.goto();
 
-        const input = TEST_DATA.validInputs[0]; // Pedelec Standardfall
-        await rechnerPage.selectDeviceMode(input.deviceMode);
+        const input = TEST_DATA.validInputs[0]; // E-Bike Standardfall
+        await rechnerPage.selectCategory(input.category);
         await rechnerPage.enterPurchasePrice(input.purchasePrice);
-        await rechnerPage.enterBirthDate(input.birthDate);
-        await rechnerPage.enterPurchaseDate(input.purchaseDate);
+        await rechnerPage.enterBirthDate(input.birthDay, input.birthMonth, input.birthYear);
+        await rechnerPage.enterPurchaseDate(input.purchaseDay, input.purchaseMonth, input.purchaseYear);
         await rechnerPage.enterPostalCode(input.plz);
 
         await page.waitForTimeout(500);
@@ -68,12 +68,12 @@ test.describe('Visual Regression', () => {
     test('Fehler-State — ungültige PLZ', async ({ page }) => {
         await rechnerPage.goto();
 
-        await rechnerPage.selectDeviceMode('pedelec');
+        await rechnerPage.selectCategory('ebike');
         await rechnerPage.enterPurchasePrice(3_500);
-        await rechnerPage.enterBirthDate('10.03.2000');
-        await rechnerPage.enterPurchaseDate('10.03.2025');
+        await rechnerPage.enterBirthDate('10', '03', '2000');
+        await rechnerPage.enterPurchaseDate('10', '03', '2025');
         await rechnerPage.enterPostalCode('00000');
-        await rechnerPage.clickCompare();
+        await rechnerPage.clickViewOffers();
 
         await page.waitForTimeout(3_000);
 

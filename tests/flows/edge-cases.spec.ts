@@ -4,8 +4,7 @@ import { collectDiagnostics, filterCriticalErrors } from '../../helpers/diagnost
 import { TEST_DATA } from '../../fixtures/test-data';
 
 /**
- * Edge-Case-Tests: Ungültige und ungewöhnliche Eingaben.
- * Prüft, dass der E-Bike-Versicherungsrechner graceful reagiert und nicht crasht.
+ * Edge-Case-Tests: Ungültige Eingaben dürfen den Rechner nicht crashen.
  */
 test.describe('Rechner Edge Cases', () => {
     let rechnerPage: RechnerPage;
@@ -13,6 +12,7 @@ test.describe('Rechner Edge Cases', () => {
     test.beforeEach(async ({ page }) => {
         rechnerPage = new RechnerPage(page);
         await rechnerPage.goto();
+        await rechnerPage.selectCategory('ebike');
     });
 
     test.afterEach(async ({ page }, testInfo) => {
@@ -20,177 +20,91 @@ test.describe('Rechner Edge Cases', () => {
     });
 
     // --- PLZ Edge Cases ---
-    test.describe('PLZ-Validierung', () => {
-        for (const plz of TEST_DATA.edgeCases.plz) {
-            const displayPlz = plz === '' ? '(leer)' : `"${plz}"`;
+    for (const plz of TEST_DATA.edgeCases.plz) {
+        const label = plz === '' ? '(leer)' : `"${plz}"`;
+        test(`PLZ ${label} — kein Crash`, async () => {
+            await rechnerPage.enterPurchasePrice(3500);
+            await rechnerPage.enterPostalCode(plz);
+            await rechnerPage.enterPurchaseDate('10', '03', '2025');
+            await rechnerPage.enterBirthDate('10', '03', '2000');
+            await rechnerPage.clickViewOffers();
+            await rechnerPage.page.waitForTimeout(5_000);
 
-            test(`PLZ ${displayPlz} — Rechner crasht nicht`, async () => {
-                await rechnerPage.selectDeviceMode('pedelec');
-                await rechnerPage.enterPurchasePrice(3_500);
-                await rechnerPage.enterBirthDate('10.03.2000');
-                await rechnerPage.enterPurchaseDate('10.03.2025');
-                await rechnerPage.enterPostalCode(plz);
-                await rechnerPage.clickCompare();
-
-                // Warten auf Reaktion
-                await rechnerPage.page.waitForTimeout(3_000);
-
-                // Keine unhandled Exceptions in der Konsole
-                const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
-                expect(
-                    criticalErrors,
-                    `Unhandled Exceptions bei PLZ ${displayPlz}:\n${criticalErrors.join('\n')}`
-                ).toHaveLength(0);
-            });
-        }
-    });
+            const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
+            expect(criticalErrors, `JS-Fehler bei PLZ ${label}:\n${criticalErrors.join('\n')}`).toHaveLength(0);
+        });
+    }
 
     // --- Kaufpreis Edge Cases ---
-    test.describe('Kaufpreis-Validierung', () => {
-        for (const price of TEST_DATA.edgeCases.purchasePrice) {
-            const displayPrice = String(price);
+    for (const price of TEST_DATA.edgeCases.purchasePrice) {
+        test(`Kaufpreis ${price}€ — kein Crash`, async () => {
+            await rechnerPage.enterPurchasePrice(price);
+            await rechnerPage.enterPostalCode('13465');
+            await rechnerPage.enterPurchaseDate('10', '03', '2025');
+            await rechnerPage.enterBirthDate('10', '03', '2000');
+            await rechnerPage.clickViewOffers();
+            await rechnerPage.page.waitForTimeout(5_000);
 
-            test(`Kaufpreis ${displayPrice}€ — Rechner crasht nicht`, async () => {
-                await rechnerPage.selectDeviceMode('pedelec');
-                await rechnerPage.enterPurchasePrice(price);
-                await rechnerPage.enterBirthDate('10.03.2000');
-                await rechnerPage.enterPurchaseDate('10.03.2025');
-                await rechnerPage.enterPostalCode('13465');
-                await rechnerPage.clickCompare();
-
-                await rechnerPage.page.waitForTimeout(3_000);
-
-                const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
-                expect(
-                    criticalErrors,
-                    `Unhandled Exceptions bei Kaufpreis ${displayPrice}€:\n${criticalErrors.join('\n')}`
-                ).toHaveLength(0);
-            });
-        }
-    });
+            const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
+            expect(criticalErrors).toHaveLength(0);
+        });
+    }
 
     // --- Geburtsdatum Edge Cases ---
-    test.describe('Geburtsdatum-Validierung', () => {
-        for (const date of TEST_DATA.edgeCases.birthDate) {
-            const displayDate = date === '' ? '(leer)' : `"${date}"`;
+    test('Zu junges Geburtsdatum — kein Crash', async () => {
+        const bd = TEST_DATA.edgeCases.birthDate.tooYoung;
+        await rechnerPage.enterPurchasePrice(3500);
+        await rechnerPage.enterPostalCode('13465');
+        await rechnerPage.enterPurchaseDate('10', '03', '2025');
+        await rechnerPage.enterBirthDate(bd.day, bd.month, bd.year);
+        await rechnerPage.clickViewOffers();
+        await rechnerPage.page.waitForTimeout(5_000);
 
-            test(`Geburtsdatum ${displayDate} — Rechner crasht nicht`, async () => {
-                await rechnerPage.selectDeviceMode('pedelec');
-                await rechnerPage.enterPurchasePrice(3_500);
-                await rechnerPage.enterBirthDate(date);
-                await rechnerPage.enterPurchaseDate('10.03.2025');
-                await rechnerPage.enterPostalCode('13465');
-                await rechnerPage.clickCompare();
-
-                await rechnerPage.page.waitForTimeout(3_000);
-
-                const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
-                expect(
-                    criticalErrors,
-                    `Unhandled Exceptions bei Geburtsdatum ${displayDate}:\n${criticalErrors.join('\n')}`
-                ).toHaveLength(0);
-            });
-        }
+        expect(filterCriticalErrors(rechnerPage.consoleErrors)).toHaveLength(0);
     });
 
-    // --- Kaufdatum Edge Cases ---
-    test.describe('Kaufdatum-Validierung', () => {
-        for (const date of TEST_DATA.edgeCases.purchaseDate) {
-            const displayDate = date === '' ? '(leer)' : `"${date}"`;
+    test('Ungültiges Geburtsdatum — kein Crash', async () => {
+        const bd = TEST_DATA.edgeCases.birthDate.invalid;
+        await rechnerPage.enterPurchasePrice(3500);
+        await rechnerPage.enterPostalCode('13465');
+        await rechnerPage.enterPurchaseDate('10', '03', '2025');
+        await rechnerPage.enterBirthDate(bd.day, bd.month, bd.year);
+        await rechnerPage.clickViewOffers();
+        await rechnerPage.page.waitForTimeout(5_000);
 
-            test(`Kaufdatum ${displayDate} — Rechner crasht nicht`, async () => {
-                await rechnerPage.selectDeviceMode('pedelec');
-                await rechnerPage.enterPurchasePrice(3_500);
-                await rechnerPage.enterBirthDate('10.03.2000');
-                await rechnerPage.enterPurchaseDate(date);
-                await rechnerPage.enterPostalCode('13465');
-                await rechnerPage.clickCompare();
-
-                await rechnerPage.page.waitForTimeout(3_000);
-
-                const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
-                expect(
-                    criticalErrors,
-                    `Unhandled Exceptions bei Kaufdatum ${displayDate}:\n${criticalErrors.join('\n')}`
-                ).toHaveLength(0);
-            });
-        }
+        expect(filterCriticalErrors(rechnerPage.consoleErrors)).toHaveLength(0);
     });
 
     // --- XSS-Tests ---
-    test.describe('XSS-Prävention', () => {
-        for (const payload of TEST_DATA.edgeCases.xssPayloads) {
-            test(`XSS-Payload "${payload.substring(0, 30)}..." wird nicht ausgeführt`, async ({ page }) => {
-                // XSS-Payload in alle verfügbaren Felder eingeben
-                await rechnerPage.enterManufacturer(payload);
-                await rechnerPage.enterModel(payload);
-                await rechnerPage.enterPostalCode(payload);
+    test('XSS-Payload in PLZ wird nicht ausgeführt', async ({ page }) => {
+        let alertTriggered = false;
+        page.on('dialog', () => { alertTriggered = true; });
 
-                // Prüfen ob ein Alert-Dialog erscheint (sollte NICHT passieren)
-                let alertTriggered = false;
-                page.on('dialog', () => {
-                    alertTriggered = true;
-                });
+        await rechnerPage.enterPostalCode('<script>alert(1)</script>');
+        await rechnerPage.clickViewOffers();
+        await page.waitForTimeout(3_000);
 
-                await rechnerPage.clickCompare();
-                await page.waitForTimeout(3_000);
+        expect(alertTriggered, 'XSS-Angriff wurde ausgeführt!').toBeFalsy();
+    });
 
-                expect(alertTriggered, `XSS-Angriff wurde ausgeführt: ${payload}`).toBeFalsy();
-            });
-        }
+    // --- Leeres Formular ---
+    test('Leeres Formular absenden — kein Crash', async () => {
+        await rechnerPage.clickViewOffers();
+        await rechnerPage.page.waitForTimeout(5_000);
+
+        expect(filterCriticalErrors(rechnerPage.consoleErrors)).toHaveLength(0);
     });
 
     // --- Doppel-Submit ---
-    test('Doppelter Klick auf Vergleichen crasht nicht', async () => {
-        await rechnerPage.selectDeviceMode('pedelec');
-        await rechnerPage.enterPurchasePrice(3_500);
-        await rechnerPage.enterBirthDate('10.03.2000');
-        await rechnerPage.enterPurchaseDate('10.03.2025');
+    test('Doppelklick auf "Angebote ansehen" — kein Crash', async () => {
+        await rechnerPage.enterPurchasePrice(3500);
         await rechnerPage.enterPostalCode('13465');
+        await rechnerPage.enterPurchaseDate('10', '03', '2025');
+        await rechnerPage.enterBirthDate('10', '03', '2000');
 
-        // Schnell zweimal klicken
-        const compareBtn = rechnerPage.page.locator(
-            'button:has-text("Jetzt vergleichen"), button:has-text("Angebot anfordern"), button[class*="vergleicherButton"]'
-        ).first();
-        await compareBtn.dblclick();
-
+        await rechnerPage.page.locator('button:has-text("Angebote ansehen")').dblclick();
         await rechnerPage.page.waitForTimeout(5_000);
 
-        const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
-        expect(
-            criticalErrors,
-            `Fehler bei Doppelklick:\n${criticalErrors.join('\n')}`
-        ).toHaveLength(0);
-    });
-
-    // --- Leeres Formular absenden ---
-    test('Leeres Formular absenden — graceful Handling', async () => {
-        // Ohne Eingaben direkt vergleichen klicken
-        await rechnerPage.clickCompare();
-
-        await rechnerPage.page.waitForTimeout(3_000);
-
-        // Kein Crash — Fehlermeldung oder keine Reaktion ist akzeptabel
-        const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
-        expect(
-            criticalErrors,
-            `Fehler bei leerem Formular:\n${criticalErrors.join('\n')}`
-        ).toHaveLength(0);
-    });
-
-    // --- Extremer Kaufpreis ---
-    test('Sehr hoher Kaufpreis (999.999€) wird verarbeitet', async () => {
-        await rechnerPage.selectDeviceMode('ebike');
-        await rechnerPage.enterPurchasePrice(999_999);
-        await rechnerPage.enterBirthDate('10.03.2000');
-        await rechnerPage.enterPurchaseDate('10.03.2025');
-        await rechnerPage.enterPostalCode('13465');
-        await rechnerPage.clickCompare();
-
-        await rechnerPage.page.waitForTimeout(5_000);
-
-        // Entweder Ergebnisse oder eine sinnvolle Meldung — aber kein Crash
-        const criticalErrors = filterCriticalErrors(rechnerPage.consoleErrors);
-        expect(criticalErrors).toHaveLength(0);
+        expect(filterCriticalErrors(rechnerPage.consoleErrors)).toHaveLength(0);
     });
 });

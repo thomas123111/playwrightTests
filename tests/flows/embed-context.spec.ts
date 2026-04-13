@@ -119,20 +119,24 @@ test.describe('Rechner im iFrame-Kontext', () => {
             await priceInput.fill(String(input.purchasePrice));
         }
 
-        // Geburtsdatum eingeben
-        const birthInput = iframe.locator(
-            'input[aria-label*="Geburtsdatum" i], label:has-text("Geburtsdatum") ~ input'
-        ).first();
-        if (await birthInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-            await birthInput.fill(input.birthDate);
+        // Geburtsdatum eingeben (3 separate Felder: Tag, Monat, Jahr)
+        const birthDayInput = iframe.locator('input[placeholder="Tag"]').nth(1);
+        const birthMonthInput = iframe.locator('input[placeholder="Monat"]').nth(1);
+        const birthYearInput = iframe.locator('input[placeholder="Jahr"]').nth(1);
+        if (await birthDayInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
+            await birthDayInput.fill(input.birthDay);
+            await birthMonthInput.fill(input.birthMonth);
+            await birthYearInput.fill(input.birthYear);
         }
 
-        // Kaufdatum eingeben
-        const purchaseDateInput = iframe.locator(
-            'input[aria-label*="Kaufdatum" i], label:has-text("Kaufdatum") ~ input'
-        ).first();
-        if (await purchaseDateInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-            await purchaseDateInput.fill(input.purchaseDate);
+        // Kaufdatum eingeben (3 separate Felder: Tag, Monat, Jahr)
+        const purchaseDayInput = iframe.locator('input[placeholder="Tag"]').nth(0);
+        const purchaseMonthInput = iframe.locator('input[placeholder="Monat"]').nth(0);
+        const purchaseYearInput = iframe.locator('input[placeholder="Jahr"]').nth(0);
+        if (await purchaseDayInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
+            await purchaseDayInput.fill(input.purchaseDay);
+            await purchaseMonthInput.fill(input.purchaseMonth);
+            await purchaseYearInput.fill(input.purchaseYear);
         }
 
         // PLZ eingeben
