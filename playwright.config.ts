@@ -144,5 +144,19 @@ export default defineConfig({
                 launchOptions: { ...(proxy ? { proxy } : {}) },
             },
         },
+
+        // --- Hotjar Bug-Report: Kleines Android Phone ---
+        {
+            name: 'Android-324x587-Firefox',
+            use: {
+                userAgent:
+                    'Mozilla/5.0 (Android 16; Mobile; rv:149.0) Gecko/149.0 Firefox/149.0',
+                viewport: { width: 324, height: 587 },
+                hasTouch: true,
+                defaultBrowserType: 'firefox',
+                // isMobile wird von Firefox nicht unterstützt — Viewport reicht aus
+                launchOptions: { ...(proxy ? { proxy } : {}) },
+            },
+        },
     ],
 });
