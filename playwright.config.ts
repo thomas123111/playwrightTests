@@ -59,8 +59,9 @@ export default defineConfig({
         ignoreHTTPSErrors: true,
         // Proxy muss auf Browser-Ebene gesetzt werden (nicht Context-Ebene),
         // damit Chromium den Proxy-Tunnel korrekt aufbaut.
+        // --no-sandbox und --ignore-certificate-errors werden pro Projekt gesetzt,
+        // da WebKit diese Chromium-Flags nicht versteht.
         launchOptions: {
-            args: ['--no-sandbox', '--ignore-certificate-errors'],
             ...(proxy ? { proxy } : {}),
         },
     },
@@ -70,29 +71,53 @@ export default defineConfig({
         // --- Desktop-Browser ---
         {
             name: 'chromium-desktop',
-            use: { ...devices['Desktop Chrome'] },
+            use: {
+                ...devices['Desktop Chrome'],
+                launchOptions: {
+                    args: ['--no-sandbox', '--ignore-certificate-errors'],
+                    ...(proxy ? { proxy } : {}),
+                },
+            },
         },
         {
             name: 'firefox-desktop',
-            use: { ...devices['Desktop Firefox'] },
+            use: {
+                ...devices['Desktop Firefox'],
+                launchOptions: { ...(proxy ? { proxy } : {}) },
+            },
         },
         {
             name: 'webkit-desktop',
-            use: { ...devices['Desktop Safari'] },
+            use: {
+                ...devices['Desktop Safari'],
+                launchOptions: { ...(proxy ? { proxy } : {}) },
+            },
         },
 
         // --- Mobile Devices ---
         {
             name: 'iPhone 14',
-            use: { ...devices['iPhone 14'] },
+            use: {
+                ...devices['iPhone 14'],
+                launchOptions: { ...(proxy ? { proxy } : {}) },
+            },
         },
         {
             name: 'iPhone SE',
-            use: { ...devices['iPhone SE'] },
+            use: {
+                ...devices['iPhone SE'],
+                launchOptions: { ...(proxy ? { proxy } : {}) },
+            },
         },
         {
             name: 'Pixel 7',
-            use: { ...devices['Pixel 7'] },
+            use: {
+                ...devices['Pixel 7'],
+                launchOptions: {
+                    args: ['--no-sandbox', '--ignore-certificate-errors'],
+                    ...(proxy ? { proxy } : {}),
+                },
+            },
         },
         {
             name: 'Galaxy S21',
@@ -104,13 +129,20 @@ export default defineConfig({
                 isMobile: true,
                 hasTouch: true,
                 defaultBrowserType: 'chromium',
+                launchOptions: {
+                    args: ['--no-sandbox', '--ignore-certificate-errors'],
+                    ...(proxy ? { proxy } : {}),
+                },
             },
         },
 
         // --- Tablet ---
         {
             name: 'iPad Pro 11',
-            use: { ...devices['iPad Pro 11'] },
+            use: {
+                ...devices['iPad Pro 11'],
+                launchOptions: { ...(proxy ? { proxy } : {}) },
+            },
         },
     ],
 });
